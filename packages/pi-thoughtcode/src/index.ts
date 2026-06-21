@@ -1,6 +1,7 @@
 import {
   type AgentSessionEvent,
   type AgentToolResult,
+  type ExtensionCommandContext,
   DefaultResourceLoader,
   type ExtensionAPI,
   type ExtensionContext,
@@ -12,7 +13,15 @@ import {
   defineTool,
   getAgentDir,
 } from "@earendil-works/pi-coding-agent";
-import { Text } from "@earendil-works/pi-tui";
+import {
+  type Component,
+  type TUI,
+  Text,
+  matchesKey,
+  truncateToWidth,
+  visibleWidth,
+  wrapTextWithAnsi,
+} from "@earendil-works/pi-tui";
 import { isAbsolute, relative } from "node:path";
 import {
   VIBE_CALL_TOOL_DESCRIPTION,
@@ -52,6 +61,20 @@ export interface VibeCallUsage {
   cost: number;
 }
 
+export type VibeCallEventType = "thinking" | "tool" | "responding" | "return" | "error" | "status";
+
+export interface VibeCallEvent {
+  t: number;
+  type: VibeCallEventType;
+  text: string;
+}
+
+export interface VibeCallTranscriptItem {
+  t: number;
+  role: "thinking" | "assistant" | "tool" | "return" | "error" | "status";
+  text: string;
+}
+
 export interface VibeCallProgress {
   status: "run" | "done" | "fail";
   depth: number;
@@ -63,6 +86,7 @@ export interface VibeCallProgress {
 
 export interface VibeCallDetails {
   kind: "vibecall";
+  runId: string;
   program_file_path: string;
   name: string;
   args: string;
@@ -70,6 +94,8 @@ export interface VibeCallDetails {
   status: "running" | "done" | "error" | "aborted";
   depth: number;
   progress?: VibeCallProgress;
+  events?: VibeCallEvent[];
+  transcript?: VibeCallTranscriptItem[];
   result?: string;
   error?: string;
 }
@@ -80,6 +106,7 @@ export interface VibeReturnDetails {
 }
 
 export interface VibeSubagentRunRequest {
+  runId: string;
   toolCallId: string;
   call: VibeCallArgs;
   prompt: string;
@@ -104,6 +131,46 @@ const COLLAPSED_VALUE_MAX_LENGTH = 200;
 const EXPANDED_VALUE_MAX_LENGTH = 2000;
 const PATH_MAX_LENGTH = 120;
 const STEP_MAX_LENGTH = 180;
+const MAX_RUN_EVENTS = 200;
+const INSPECT_VIEWPORT_HEIGHT_PCT = 80;
+
+export interface VibeCallRunRecord {
+  id: string;
+  toolCallId: string;
+  call: VibeCallArgs;
+  prompt: string;
+  status: VibeCallDetails["status"];
+  depth: number;
+  progress: VibeCallProgress;
+  events: VibeCallEvent[];
+  transcript: VibeCallTranscriptItem[];
+  result?: string;
+  error?: string;
+  cwd?: string;
+  startedAt: number;
+  endedAt?: number;
+}
+
+const vibeCallRuns = new Map<string, VibeCallRunRecord>();
+let vibeCallRunCounter = 0;
+
+function createVibeCallRunId(): string {
+  vibeCallRunCounter += 1;
+  return `tc-${vibeCallRunCounter}`;
+}
+
+export function getVibeCallRun(runId: string): VibeCallRunRecord | undefined {
+  return vibeCallRuns.get(runId);
+}
+
+export function listVibeCallRuns(): VibeCallRunRecord[] {
+  return [...vibeCallRuns.values()];
+}
+
+export function clearVibeCallRunsForTests(): void {
+  vibeCallRuns.clear();
+  vibeCallRunCounter = 0;
+}
 
 function truncateEnd(value: string, maxLength: number): string {
   if (value.length <= maxLength) {
@@ -223,19 +290,24 @@ function previewToolArgs(toolName: string, args: unknown): string {
 }
 
 function firstTextContent(content: unknown): string {
+  return contentBlocksText(content, "text");
+}
+
+function thinkingTextContent(content: unknown): string {
+  return contentBlocksText(content, "thinking");
+}
+
+function contentBlocksText(content: unknown, type: "text" | "thinking"): string {
   if (!Array.isArray(content)) {
     return "";
   }
   return content
     .map((part) => {
       const block = part as { type?: string; text?: unknown; thinking?: unknown };
-      if (block.type === "text" && typeof block.text === "string") {
-        return block.text;
+      if (type === "text") {
+        return block.type === "text" && typeof block.text === "string" ? block.text : "";
       }
-      if (block.type === "thinking" && typeof block.thinking === "string") {
-        return "";
-      }
-      return "";
+      return block.type === "thinking" && typeof block.thinking === "string" ? block.thinking : "";
     })
     .filter(Boolean)
     .join("\n")
@@ -252,7 +324,7 @@ function textFromAssistantEvent(event: AgentSessionEvent): string {
     delta?: unknown;
     partial?: { content?: unknown };
   };
-  if (assistantEvent.type?.startsWith("thinking")) {
+  if (assistantEvent.type && !assistantEvent.type.startsWith("text")) {
     return "";
   }
   if (typeof assistantEvent.content === "string") {
@@ -262,6 +334,24 @@ function textFromAssistantEvent(event: AgentSessionEvent): string {
     return assistantEvent.delta;
   }
   return firstTextContent(assistantEvent.partial?.content);
+}
+
+function thinkingFromAssistantEvent(event: AgentSessionEvent): { mode: "delta" | "complete"; text: string } | undefined {
+  if (event.type !== "message_update") {
+    return undefined;
+  }
+  const assistantEvent = event.assistantMessageEvent as {
+    type?: string;
+    content?: unknown;
+    delta?: unknown;
+  };
+  if (assistantEvent.type === "thinking_delta" && typeof assistantEvent.delta === "string") {
+    return { mode: "delta", text: assistantEvent.delta };
+  }
+  if (assistantEvent.type === "thinking_end" && typeof assistantEvent.content === "string") {
+    return { mode: "complete", text: assistantEvent.content };
+  }
+  return undefined;
 }
 
 function updateProgressFromChildEvent(progress: VibeCallProgress, event: AgentSessionEvent, cwd: string): boolean {
@@ -341,15 +431,19 @@ function createVibeCallProgress(depth: number): VibeCallProgress {
 }
 
 function createVibeCallDetails(
+  runId: string,
   call: VibeCallArgs,
   prompt: string,
   status: VibeCallDetails["status"],
   depth: number,
   progress: VibeCallProgress | undefined,
+  events: VibeCallEvent[] | undefined,
+  transcript: VibeCallTranscriptItem[] | undefined,
   extra: Pick<VibeCallDetails, "result" | "error"> = {},
 ): VibeCallDetails {
   return {
     kind: "vibecall",
+    runId,
     program_file_path: call.program_file_path,
     name: call.name,
     args: call.args,
@@ -357,6 +451,8 @@ function createVibeCallDetails(
     status,
     depth,
     ...(progress ? { progress } : {}),
+    ...(events ? { events: [...events] } : {}),
+    ...(transcript ? { transcript: [...transcript] } : {}),
     ...extra,
   };
 }
@@ -366,10 +462,20 @@ function emitVibeCallProgress(
   progress: VibeCallProgress,
   status: VibeCallDetails["status"] = "running",
 ): void {
+  const record = vibeCallRuns.get(request.runId);
   request.onUpdate?.(
     textResult(
       progress.step,
-      createVibeCallDetails(request.call, request.prompt, status, request.depth, progress),
+      createVibeCallDetails(
+        request.runId,
+        request.call,
+        request.prompt,
+        status,
+        request.depth,
+        progress,
+        record?.events,
+        record?.transcript,
+      ),
     ),
   );
 }
@@ -428,6 +534,194 @@ function formatArgsForDisplay(args: string, maxLength: number): string {
   return args.trim() ? truncateEnd(args, maxLength) : "<empty>";
 }
 
+function classifyProgressStep(step: string): VibeCallEventType {
+  if (step === "think") {
+    return "thinking";
+  }
+  if (step.startsWith("tool ")) {
+    return "tool";
+  }
+  if (step.startsWith("text ")) {
+    return "responding";
+  }
+  if (step.startsWith("done ")) {
+    return "return";
+  }
+  if (step.startsWith("fail ")) {
+    return "error";
+  }
+  return "status";
+}
+
+function createVibeCallRunRecord(
+  runId: string,
+  toolCallId: string,
+  call: VibeCallArgs,
+  prompt: string,
+  depth: number,
+  progress: VibeCallProgress,
+  cwd: string | undefined,
+): VibeCallRunRecord {
+  return {
+    id: runId,
+    toolCallId,
+    call,
+    prompt,
+    status: "running",
+    depth,
+    progress,
+    events: [],
+    transcript: [],
+    cwd,
+    startedAt: progress.startedAt,
+  };
+}
+
+function appendVibeCallEvent(record: VibeCallRunRecord, type: VibeCallEventType, text: string): void {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return;
+  }
+  const last = record.events.at(-1);
+  if (last?.type === type && last.text === trimmed) {
+    return;
+  }
+  record.events.push({ t: Date.now(), type, text: trimmed });
+  if (record.events.length > MAX_RUN_EVENTS) {
+    record.events.splice(0, record.events.length - MAX_RUN_EVENTS);
+  }
+}
+
+function appendTranscriptItem(record: VibeCallRunRecord, role: VibeCallTranscriptItem["role"], text: string): void {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return;
+  }
+  const last = record.transcript.at(-1);
+  if (last?.role === role) {
+    if (last.text === trimmed || last.text.endsWith(trimmed)) {
+      return;
+    }
+    if (role === "assistant") {
+      last.text = `${last.text}${trimmed}`;
+      last.t = Date.now();
+      return;
+    }
+  }
+  record.transcript.push({ t: Date.now(), role, text: trimmed });
+  if (record.transcript.length > MAX_RUN_EVENTS) {
+    record.transcript.splice(0, record.transcript.length - MAX_RUN_EVENTS);
+  }
+}
+
+function trimTranscript(record: VibeCallRunRecord): void {
+  if (record.transcript.length > MAX_RUN_EVENTS) {
+    record.transcript.splice(0, record.transcript.length - MAX_RUN_EVENTS);
+  }
+}
+
+function appendTranscriptDelta(record: VibeCallRunRecord, role: "thinking" | "assistant", delta: string): void {
+  if (!delta) {
+    return;
+  }
+  const last = record.transcript.at(-1);
+  if (last?.role === role) {
+    last.text = `${last.text}${delta}`;
+    last.t = Date.now();
+    return;
+  }
+  const text = delta.trimStart();
+  if (!text) {
+    return;
+  }
+  record.transcript.push({ t: Date.now(), role, text });
+  trimTranscript(record);
+}
+
+function appendTranscriptComplete(record: VibeCallRunRecord, role: "thinking" | "assistant", text: string): void {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return;
+  }
+  for (let index = record.transcript.length - 1; index >= 0; index -= 1) {
+    const item = record.transcript[index];
+    if (item.role !== role) {
+      continue;
+    }
+    const existing = item.text.trim();
+    if (existing === trimmed || existing.endsWith(trimmed) || trimmed.endsWith(existing)) {
+      item.text = trimmed;
+      item.t = Date.now();
+      return;
+    }
+  }
+  appendTranscriptItem(record, role, trimmed);
+}
+
+function appendTranscriptFromAssistantUpdate(record: VibeCallRunRecord, event: AgentSessionEvent): void {
+  const thinking = thinkingFromAssistantEvent(event);
+  if (thinking) {
+    if (thinking.mode === "delta") {
+      appendTranscriptDelta(record, "thinking", thinking.text);
+    } else {
+      appendTranscriptComplete(record, "thinking", thinking.text);
+    }
+    return;
+  }
+
+  const text = textFromAssistantEvent(event);
+  if (!text) {
+    return;
+  }
+  const assistantEvent = event.type === "message_update" ? (event.assistantMessageEvent as { type?: string }) : undefined;
+  if (assistantEvent?.type === "text_delta") {
+    appendTranscriptDelta(record, "assistant", text);
+  } else {
+    appendTranscriptComplete(record, "assistant", text);
+  }
+}
+
+function appendTranscriptFromAssistantMessage(record: VibeCallRunRecord, content: unknown): void {
+  appendTranscriptComplete(record, "thinking", thinkingTextContent(content));
+  appendTranscriptComplete(record, "assistant", firstTextContent(content));
+}
+
+function appendProgressEvent(record: VibeCallRunRecord, progress: VibeCallProgress, cwd: string | undefined): void {
+  appendVibeCallEvent(
+    record,
+    classifyProgressStep(progress.step),
+    formatProgressStepForDisplay(progress.step, true, cwd),
+  );
+}
+
+function appendProgressTranscript(record: VibeCallRunRecord, progress: VibeCallProgress, cwd: string | undefined): void {
+  const step = progress.step;
+  if (step === "think") {
+    return;
+  }
+  if (step.startsWith("tool ")) {
+    appendTranscriptItem(record, "tool", formatProgressStepForDisplay(step, true, cwd).replace(/^tool /, ""));
+    return;
+  }
+  if (step.startsWith("text ")) {
+    return;
+  }
+  if (step.startsWith("done ")) {
+    appendTranscriptItem(record, "return", step.slice(5));
+    return;
+  }
+  if (step.startsWith("fail ")) {
+    appendTranscriptItem(record, "error", step.slice(5));
+    return;
+  }
+  appendTranscriptItem(record, "status", formatProgressStepForDisplay(step, true, cwd));
+}
+
+function appendProgressUpdate(record: VibeCallRunRecord, progress: VibeCallProgress, cwd: string | undefined): void {
+  appendProgressEvent(record, progress, cwd);
+  appendProgressTranscript(record, progress, cwd);
+}
+
 function renderVibeCallCall(args: VibeCallParams, theme: Theme, executionStarted: boolean): Text {
   if (executionStarted) {
     return new Text("", 0, 0);
@@ -455,6 +749,7 @@ function renderVibeCallResult(
     theme.fg(status === "done" ? "success" : status === "failed" ? "error" : "accent", status),
     duration,
     `depth=${progress?.depth ?? details.depth}`,
+    `run=${details.runId}`,
     usage,
   ].filter(Boolean);
 
@@ -480,9 +775,222 @@ function renderVibeCallResult(
     for (const line of details.prompt.split("\n")) {
       lines.push(`  ${line}`);
     }
+    if (details.events?.length) {
+      lines.push("", theme.fg("muted", "events"));
+      for (const event of details.events.slice(-30)) {
+        lines.push(`  ${event.type} ${event.text}`);
+      }
+    }
   }
 
   return new Text(lines.join("\n"), 0, 0);
+}
+
+function padToWidth(value: string, width: number): string {
+  const clipped = truncateToWidth(value.replace(/\t/g, "  "), width, "");
+  return `${clipped}${" ".repeat(Math.max(0, width - visibleWidth(clipped)))}`;
+}
+
+export class ThoughtcodeInspectOverlay implements Component {
+  private scrollOffset = 0;
+  private autoScroll = true;
+  private lastInnerWidth = 80;
+  private closed = false;
+  private timer: ReturnType<typeof setInterval> | undefined;
+
+  constructor(
+    private readonly tui: TUI,
+    private readonly record: VibeCallRunRecord,
+    private readonly theme: Theme,
+    private readonly done: () => void,
+  ) {
+    if (record.status === "running") {
+      this.timer = setInterval(() => this.tui.requestRender(), 500);
+      this.timer.unref?.();
+    }
+  }
+
+  handleInput(data: string): void {
+    if (matchesKey(data, "escape") || data === "q") {
+      this.close();
+      return;
+    }
+
+    const contentLines = this.buildContentLines(this.lastInnerWidth);
+    const viewportHeight = this.viewportHeight();
+    const maxScroll = Math.max(0, contentLines.length - viewportHeight);
+
+    if (matchesKey(data, "up") || data === "k") {
+      this.scrollOffset = Math.max(0, this.scrollOffset - 1);
+      this.autoScroll = false;
+    } else if (matchesKey(data, "down") || data === "j") {
+      this.scrollOffset = Math.min(maxScroll, this.scrollOffset + 1);
+      this.autoScroll = this.scrollOffset >= maxScroll;
+    } else if (matchesKey(data, "pageUp")) {
+      this.scrollOffset = Math.max(0, this.scrollOffset - viewportHeight);
+      this.autoScroll = false;
+    } else if (matchesKey(data, "pageDown")) {
+      this.scrollOffset = Math.min(maxScroll, this.scrollOffset + viewportHeight);
+      this.autoScroll = this.scrollOffset >= maxScroll;
+    } else if (matchesKey(data, "home")) {
+      this.scrollOffset = 0;
+      this.autoScroll = false;
+    } else if (matchesKey(data, "end")) {
+      this.scrollOffset = maxScroll;
+      this.autoScroll = true;
+    }
+  }
+
+  render(width: number): string[] {
+    if (width < 12) {
+      return [];
+    }
+
+    const th = this.theme;
+    const innerWidth = Math.max(8, width - 4);
+    this.lastInnerWidth = innerWidth;
+    const contentLines = this.buildContentLines(innerWidth);
+    const viewportHeight = this.viewportHeight();
+    const maxScroll = Math.max(0, contentLines.length - viewportHeight);
+
+    if (this.autoScroll) {
+      this.scrollOffset = maxScroll;
+    }
+
+    const visibleStart = Math.min(this.scrollOffset, maxScroll);
+    const visible = contentLines.slice(visibleStart, visibleStart + viewportHeight);
+    const row = (content: string) => `${th.fg("border", "│")} ${padToWidth(content, innerWidth)} ${th.fg("border", "│")}`;
+    const divider = row(th.fg("dim", "─".repeat(innerWidth)));
+    const icon = markerForProgress(this.record.progress, this.record.status, th);
+    const status = labelForStatus(this.record.progress, this.record.status);
+    const title = `${icon} ${th.bold("Thoughtcode")} ${this.record.id} ${status} ${formatDuration(this.record.startedAt, this.record.endedAt)}`;
+    const footerLeft = th.fg("dim", `${contentLines.length} lines`);
+    const footerRight = th.fg("dim", "↑↓/jk scroll · PgUp/PgDn · q/Esc close");
+    const gap = Math.max(1, innerWidth - visibleWidth(footerLeft) - visibleWidth(footerRight));
+
+    const lines = [
+      th.fg("border", `╭${"─".repeat(width - 2)}╮`),
+      row(title),
+      divider,
+      ...Array.from({ length: viewportHeight }, (_, index) => row(visible[index] ?? "")),
+      divider,
+      row(`${footerLeft}${" ".repeat(gap)}${footerRight}`),
+      th.fg("border", `╰${"─".repeat(width - 2)}╯`),
+    ];
+
+    return lines;
+  }
+
+  invalidate(): void {
+    // No cached render state.
+  }
+
+  dispose(): void {
+    this.closed = true;
+    if (this.timer) {
+      clearInterval(this.timer);
+      this.timer = undefined;
+    }
+  }
+
+  private close(): void {
+    if (this.closed) {
+      return;
+    }
+    this.dispose();
+    this.done();
+  }
+
+  private viewportHeight(): number {
+    const rows = this.tui.terminal?.rows ?? 36;
+    return Math.max(6, Math.floor((rows * INSPECT_VIEWPORT_HEIGHT_PCT) / 100) - 6);
+  }
+
+  private buildContentLines(width: number): string[] {
+    const th = this.theme;
+    const lines = [
+      `${th.fg("muted", "entry")} ${this.record.call.name}`,
+      `${th.fg("muted", "file")} ${formatPathForDisplay(this.record.call.program_file_path, this.record.cwd)}`,
+      `${th.fg("muted", "args")} ${formatArgsForDisplay(this.record.call.args, EXPANDED_ARGS_MAX_LENGTH)}`,
+      `${th.fg("muted", "depth")} ${this.record.depth}`,
+      "",
+      th.fg("muted", "Prompt"),
+    ];
+
+    for (const line of this.record.prompt.split("\n")) {
+      lines.push(...wrapTextWithAnsi(`  ${line}`, width));
+    }
+
+    lines.push("", th.fg("muted", "Subagent"));
+    if (this.record.transcript.length === 0) {
+      lines.push(th.fg("dim", "  Waiting for subagent activity..."));
+    } else {
+      const labels: Record<VibeCallTranscriptItem["role"], string> = {
+        assistant: "Assistant",
+        tool: "Tool",
+        return: "Return",
+        error: "Error",
+        thinking: "Reasoning",
+        status: "Status",
+      };
+      for (const item of this.record.transcript) {
+        lines.push(th.fg("accent", labels[item.role]));
+        for (const line of item.text.split("\n")) {
+          lines.push(...wrapTextWithAnsi(`  ${line}`, width));
+        }
+        lines.push("");
+      }
+      if (lines.at(-1) === "") {
+        lines.pop();
+      }
+    }
+
+    if (this.record.result !== undefined) {
+      lines.push("", `${th.fg("muted", "result")} ${truncateEnd(this.record.result, EXPANDED_VALUE_MAX_LENGTH)}`);
+    } else if (this.record.error !== undefined) {
+      lines.push("", `${th.fg("muted", "error")} ${truncateEnd(this.record.error, EXPANDED_VALUE_MAX_LENGTH)}`);
+    }
+
+    return lines;
+  }
+}
+
+function latestVibeCallRun(): VibeCallRunRecord | undefined {
+  return listVibeCallRuns().at(-1);
+}
+
+function resolveVibeCallRun(runId: string): VibeCallRunRecord | undefined {
+  const trimmed = runId.trim();
+  if (!trimmed || trimmed === "latest") {
+    return latestVibeCallRun();
+  }
+  return getVibeCallRun(trimmed);
+}
+
+export async function inspectThoughtcodeRun(args: string, ctx: ExtensionCommandContext): Promise<void> {
+  const run = resolveVibeCallRun(args);
+  if (!run) {
+    ctx.ui.notify(args.trim() ? `Thoughtcode run not found: ${args.trim()}` : "No Thoughtcode runs yet.", "warning");
+    return;
+  }
+
+  if (ctx.mode !== "tui") {
+    ctx.ui.notify(`Thoughtcode run ${run.id}: ${run.status}. Use TUI mode for the live inspector.`, "info");
+    return;
+  }
+
+  await ctx.ui.custom<void>(
+    (tui, theme, _keybindings, done) => new ThoughtcodeInspectOverlay(tui, run, theme, done),
+    {
+      overlay: true,
+      overlayOptions: {
+        anchor: "center",
+        width: "90%",
+        maxHeight: `${INSPECT_VIEWPORT_HEIGHT_PCT}%`,
+        minWidth: 60,
+      },
+    },
+  );
 }
 
 export function createVibeCallTool(options: ThoughtcodeToolOptions = {}) {
@@ -507,9 +1015,14 @@ export function createVibeCallTool(options: ThoughtcodeToolOptions = {}) {
       };
       const prompt = buildVibeCallSubagentPrompt(call);
       const progress = createVibeCallProgress(depth);
+      const runId = createVibeCallRunId();
+      const run = createVibeCallRunRecord(runId, toolCallId, call, prompt, depth, progress, ctx?.cwd);
+      vibeCallRuns.set(runId, run);
+      appendProgressUpdate(run, progress, ctx?.cwd);
 
       try {
         const value = await runSubagent({
+          runId,
           toolCallId,
           call,
           prompt,
@@ -523,17 +1036,25 @@ export function createVibeCallTool(options: ThoughtcodeToolOptions = {}) {
         progress.status = "done";
         progress.endedAt ??= Date.now();
         progress.step = `done ${truncateEnd(value, STEP_MAX_LENGTH - 5)}`;
+        run.status = "done";
+        run.endedAt = progress.endedAt;
+        run.result = value;
+        appendProgressUpdate(run, progress, ctx?.cwd);
 
-        return textResult(value, createVibeCallDetails(call, prompt, "done", depth, progress, { result: value }));
+        return textResult(value, createVibeCallDetails(runId, call, prompt, "done", depth, progress, run.events, run.transcript, { result: value }));
       } catch (error) {
         const status = signal?.aborted ? "aborted" : "error";
         const message = getErrorMessage(error);
         progress.status = "fail";
         progress.endedAt ??= Date.now();
         progress.step = `fail ${truncateEnd(message, STEP_MAX_LENGTH - 5)}`;
+        run.status = status;
+        run.endedAt = progress.endedAt;
+        run.error = message;
+        appendProgressUpdate(run, progress, ctx?.cwd);
         return textResult(
           `VIBECALL ${status}: ${message}`,
-          createVibeCallDetails(call, prompt, status, depth, progress, { error: message }),
+          createVibeCallDetails(runId, call, prompt, status, depth, progress, run.events, run.transcript, { error: message }),
         );
       }
     },
@@ -583,6 +1104,7 @@ export function createVibeReturnTool(options: ThoughtcodeToolOptions = {}) {
 export async function runThoughtcodeSubagent(request: VibeSubagentRunRequest): Promise<string> {
   const { ctx, signal } = request;
   const model = ctx.model;
+  const run = vibeCallRuns.get(request.runId);
 
   if (!model) {
     throw new Error("Cannot spawn Thoughtcode subagent: no PI model is selected.");
@@ -625,7 +1147,14 @@ export async function runThoughtcodeSubagent(request: VibeSubagentRunRequest): P
   });
 
   const unsubscribe = session.subscribe((event) => {
+    if (run && event.type === "message_update") {
+      appendTranscriptFromAssistantUpdate(run, event);
+    }
+
     if (updateProgressFromChildEvent(request.progress, event, cwd)) {
+      if (run) {
+        appendProgressUpdate(run, request.progress, cwd);
+      }
       emitVibeCallProgress(request, request.progress);
     }
 
@@ -634,6 +1163,16 @@ export async function runThoughtcodeSubagent(request: VibeSubagentRunRequest): P
     }
     if (event.message.role === "assistant" && event.message.stopReason === "error") {
       subagentError = event.message.errorMessage ?? "Thoughtcode subagent failed.";
+      if (run) {
+        appendVibeCallEvent(run, "error", subagentError);
+        appendTranscriptItem(run, "error", subagentError);
+      }
+      return;
+    }
+    if (event.message.role === "assistant") {
+      if (run) {
+        appendTranscriptFromAssistantMessage(run, event.message.content);
+      }
       return;
     }
     if (event.message.role !== "toolResult") {
@@ -678,12 +1217,24 @@ export async function runThoughtcodeSubagent(request: VibeSubagentRunRequest): P
         request.progress.status = "fail";
         request.progress.endedAt = Date.now();
         request.progress.step = `fail ${truncateEnd(subagentError, STEP_MAX_LENGTH - 5)}`;
+        if (run) {
+          run.status = "error";
+          run.endedAt = request.progress.endedAt;
+          run.error = subagentError;
+          appendProgressUpdate(run, request.progress, cwd);
+        }
         emitVibeCallProgress(request, request.progress, "error");
         throw new Error(subagentError);
       }
       request.progress.status = "fail";
       request.progress.endedAt = Date.now();
       request.progress.step = "fail missing VIBERETURN";
+      if (run) {
+        run.status = "error";
+        run.endedAt = request.progress.endedAt;
+        run.error = "Finished without calling VIBERETURN.";
+        appendProgressUpdate(run, request.progress, cwd);
+      }
       emitVibeCallProgress(request, request.progress, "error");
       throw new Error("Finished without calling VIBERETURN.");
     }
@@ -691,6 +1242,12 @@ export async function runThoughtcodeSubagent(request: VibeSubagentRunRequest): P
     request.progress.status = "done";
     request.progress.endedAt = Date.now();
     request.progress.step = `done ${truncateEnd(returnedValue, STEP_MAX_LENGTH - 5)}`;
+    if (run) {
+      run.status = "done";
+      run.endedAt = request.progress.endedAt;
+      run.result = returnedValue;
+      appendProgressUpdate(run, request.progress, cwd);
+    }
     emitVibeCallProgress(request, request.progress);
     return returnedValue;
   } finally {
@@ -714,6 +1271,17 @@ const thoughtcodeExtension: ExtensionFactory = (pi: ExtensionAPI) => {
   for (const tool of createThoughtcodeTools()) {
     pi.registerTool(tool);
   }
+  pi.registerCommand("thoughtcode-inspect", {
+    description: "Inspect a live or recent Thoughtcode VIBECALL run. Usage: /thoughtcode-inspect <runId|latest>",
+    getArgumentCompletions(argumentPrefix) {
+      const prefix = argumentPrefix.trim();
+      return listVibeCallRuns()
+        .map((run) => run.id)
+        .filter((id) => id.startsWith(prefix))
+        .map((id) => ({ label: id, value: id, description: "Thoughtcode VIBECALL run" }));
+    },
+    handler: inspectThoughtcodeRun,
+  });
 };
 
 export default thoughtcodeExtension;
