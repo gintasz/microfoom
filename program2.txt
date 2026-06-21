@@ -1,0 +1,13 @@
+# ThoughtCode program
+
+VIBEMETHOD main()
+	res = VIBECALL fac(n = 4)
+	VIBERETURN(res)
+
+VIBEMETHOD fac(n: number)
+	if n <= 1
+        VIBERETURN(1)
+    else
+        subres = VIBECALL fac(n = n - 1)
+        n = n * subres
+	VIBERETURN(n)

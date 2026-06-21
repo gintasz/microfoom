@@ -89,6 +89,25 @@ export const THOUGHTCODE_SYSTEM_PROMPT = [
   "<!-- thoughtcode:end -->",
 ].join("\n");
 
+export const THOUGHTCODE_SYSTEM_PROMPT_MARKER = "<!-- thoughtcode:begin -->";
+
+export const THOUGHTCODE_SUBAGENT_FAILED_MESSAGE = "ThoughtCode subagent failed.";
+export const THOUGHTCODE_SUBAGENT_ABORTED_BEFORE_PROMPT_MESSAGE = "ThoughtCode subagent aborted before prompt start.";
+export const THOUGHTCODE_MISSING_VIBE_RETURN_MESSAGE = "Finished without calling VIBERETURN.";
+export const THOUGHTCODE_MISSING_VIBE_RETURN_PROGRESS_STEP = "failed missing VIBERETURN";
+
+export function buildVibeReturnOutsideSubagentMessage(args: VibeReturnArgs): string {
+  return `${VIBE_RETURN_TOOL_NAME} ignored outside ${VIBE_CALL_TOOL_NAME} subagent: ${args.value}`;
+}
+
+export function buildVibeCallFailureMessage(status: string, message: string): string {
+  return `${VIBE_CALL_TOOL_NAME} ${status}: ${message}`;
+}
+
+export function buildCannotSpawnThoughtcodeSubagentMessage(reason: string): string {
+  return `Cannot spawn ThoughtCode subagent: ${reason}`;
+}
+
 export function buildVibeCallSubagentPrompt(args: VibeCallArgs): string {
   return [
     `ENTRYPOINT = ${args.name}`,

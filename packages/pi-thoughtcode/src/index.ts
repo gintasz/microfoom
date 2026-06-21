@@ -24,12 +24,22 @@ import {
 } from "@earendil-works/pi-tui";
 import { isAbsolute, relative } from "node:path";
 import {
+  THOUGHTCODE_MISSING_VIBE_RETURN_MESSAGE,
+  THOUGHTCODE_MISSING_VIBE_RETURN_PROGRESS_STEP,
   THOUGHTCODE_SYSTEM_PROMPT,
-  VIBE_CALL_TOOL_PARAMETERS,
+  THOUGHTCODE_SYSTEM_PROMPT_MARKER,
+  THOUGHTCODE_SUBAGENT_ABORTED_BEFORE_PROMPT_MESSAGE,
+  THOUGHTCODE_SUBAGENT_FAILED_MESSAGE,
   VIBE_CALL_TOOL_DESCRIPTION,
+  VIBE_CALL_TOOL_NAME,
+  VIBE_CALL_TOOL_PARAMETERS,
+  VIBE_RETURN_TOOL_NAME,
   VIBE_RETURN_TOOL_PARAMETERS,
   VIBE_RETURN_TOOL_DESCRIPTION,
+  buildVibeCallFailureMessage,
   buildVibeCallSubagentPrompt,
+  buildCannotSpawnThoughtcodeSubagentMessage,
+  buildVibeReturnOutsideSubagentMessage,
   type ThoughtcodeToolParameter,
   type VibeCallArgs,
   type VibeReturnArgs,
@@ -138,7 +148,6 @@ const PATH_MAX_LENGTH = 120;
 const STEP_MAX_LENGTH = 180;
 const MAX_RUN_EVENTS = 200;
 const INSPECT_VIEWPORT_HEIGHT_PCT = 80;
-const THOUGHTCODE_SYSTEM_PROMPT_MARKER = "<!-- thoughtcode:begin -->";
 
 export interface VibeCallRunRecord {
   id: string;
@@ -279,12 +288,12 @@ function previewToolArgs(toolName: string, args: unknown): string {
   if (toolName === "read" && typeof record.path === "string") {
     return record.path;
   }
-  if (toolName === "VIBECALL") {
+  if (toolName === VIBE_CALL_TOOL_NAME) {
     const name = typeof record.name === "string" ? record.name : "";
     const callArgs = typeof record.args === "string" ? ` ${truncateEnd(record.args, 60)}` : "";
     return `${name}${callArgs}`.trim();
   }
-  if (toolName === "VIBERETURN" && typeof record.value === "string") {
+  if (toolName === VIBE_RETURN_TOOL_NAME && typeof record.value === "string") {
     return truncateEnd(record.value, 80);
   }
   for (const key of ["path", "command", "pattern", "query", "url", "value"]) {
@@ -305,7 +314,7 @@ function vibeCallDetailsFromToolResult(result: unknown): VibeCallDetails | undef
 
 function formatNestedVibeCallTool(details: VibeCallDetails): string {
   const args = details.args.trim() ? ` ${truncateEnd(details.args, 80)}` : "";
-  return `VIBECALL run=${details.runId} ${details.name}${args}`;
+  return `${VIBE_CALL_TOOL_NAME} run=${details.runId} ${details.name}${args}`;
 }
 
 function firstTextContent(content: unknown): string {
@@ -413,14 +422,14 @@ function updateProgressFromChildEvent(progress: VibeCallProgress, event: AgentSe
     progress.step = truncateEnd(`tool ${event.toolName}${displayPreview ? ` ${displayPreview}` : ""}`, STEP_MAX_LENGTH);
     return true;
   }
-  if (event.type === "tool_execution_update" && event.toolName === "VIBECALL") {
+  if (event.type === "tool_execution_update" && event.toolName === VIBE_CALL_TOOL_NAME) {
     const details = vibeCallDetailsFromToolResult(event.partialResult);
     if (details) {
       progress.step = truncateEnd(`tool ${formatNestedVibeCallTool(details)}`, STEP_MAX_LENGTH);
       return true;
     }
   }
-  if (event.type === "tool_execution_end" && event.toolName === "VIBECALL") {
+  if (event.type === "tool_execution_end" && event.toolName === VIBE_CALL_TOOL_NAME) {
     const details = vibeCallDetailsFromToolResult(event.result);
     if (details) {
       progress.step = truncateEnd(`tool ${formatNestedVibeCallTool(details)}`, STEP_MAX_LENGTH);
@@ -432,7 +441,7 @@ function updateProgressFromChildEvent(progress: VibeCallProgress, event: AgentSe
     progress.step = `fail ${truncateEnd(event.toolName, STEP_MAX_LENGTH - 5)}`;
     return true;
   }
-  if (event.type === "message_end" && event.message.role === "toolResult" && event.message.toolName === "VIBERETURN") {
+  if (event.type === "message_end" && event.message.role === "toolResult" && event.message.toolName === VIBE_RETURN_TOOL_NAME) {
     const value = getTextContent(event.message.content);
     progress.status = "done";
     progress.step = `done ${truncateEnd(value, STEP_MAX_LENGTH - 5)}`;
@@ -800,7 +809,7 @@ function renderVibeCallCall(args: VibeCallParams, theme: Theme, executionStarted
   const name = args.name || "unknown";
   const preview = truncateEnd(args.args || "", 80);
   const suffix = preview ? ` ${theme.fg("dim", preview)}` : "";
-  return new Text(`${theme.fg("toolTitle", theme.bold("VIBECALL"))} ${theme.fg("muted", name)}${suffix}`, 0, 0);
+  return new Text(`${theme.fg("toolTitle", theme.bold(VIBE_CALL_TOOL_NAME))} ${theme.fg("muted", name)}${suffix}`, 0, 0);
 }
 
 function renderVibeCallResult(
@@ -816,7 +825,7 @@ function renderVibeCallResult(
   const usage = formatUsage(progress?.usage);
   const headerParts = [
     markerForProgress(progress, details.status, theme),
-    theme.fg("toolTitle", theme.bold("VIBECALL")),
+    theme.fg("toolTitle", theme.bold(VIBE_CALL_TOOL_NAME)),
     theme.fg(status === "done" ? "success" : status === "failed" ? "error" : "accent", status),
     duration,
     `depth=${progress?.depth ?? details.depth}`,
@@ -1124,7 +1133,7 @@ export function createVibeCallTool(options: ThoughtcodeToolOptions = {}) {
         run.error = message;
         appendProgressUpdate(run, progress, ctx?.cwd);
         return textResult(
-          `VIBECALL ${status}: ${message}`,
+          buildVibeCallFailureMessage(status, message),
           createVibeCallDetails(runId, call, prompt, status, depth, progress, run.events, run.transcript, { error: message }),
         );
       }
@@ -1149,7 +1158,7 @@ export function createVibeReturnTool(options: ThoughtcodeToolOptions = {}) {
 
       if (!options.onVibeReturn) {
         return textResult(
-          `VIBERETURN ignored outside VIBECALL subagent: ${args.value}`,
+          buildVibeReturnOutsideSubagentMessage(args),
           {
             kind: "vibereturn",
             value: args.value,
@@ -1178,7 +1187,7 @@ export async function runThoughtcodeSubagent(request: VibeSubagentRunRequest): P
   const run = vibeCallRuns.get(request.runId);
 
   if (!model) {
-    throw new Error("Cannot spawn Thoughtcode subagent: no PI model is selected.");
+    throw new Error(buildCannotSpawnThoughtcodeSubagentMessage("no PI model is selected."));
   }
 
   let returnedValue: string | undefined;
@@ -1214,7 +1223,7 @@ export async function runThoughtcodeSubagent(request: VibeSubagentRunRequest): P
     sessionManager: SessionManager.inMemory(cwd),
     resourceLoader,
     customTools: [...childTools],
-    tools: ["read", "VIBECALL", "VIBERETURN"],
+    tools: ["read", VIBE_CALL_TOOL_NAME, VIBE_RETURN_TOOL_NAME],
   });
 
   const unsubscribe = session.subscribe((event) => {
@@ -1233,10 +1242,10 @@ export async function runThoughtcodeSubagent(request: VibeSubagentRunRequest): P
       emitVibeCallProgress(request, request.progress);
     }
 
-    if (run && event.type === "tool_execution_update" && event.toolName === "VIBECALL") {
+    if (run && event.type === "tool_execution_update" && event.toolName === VIBE_CALL_TOOL_NAME) {
       appendNestedVibeCallToolTranscript(run, event.partialResult, event.toolCallId);
     }
-    if (run && event.type === "tool_execution_end" && event.toolName === "VIBECALL") {
+    if (run && event.type === "tool_execution_end" && event.toolName === VIBE_CALL_TOOL_NAME) {
       appendNestedVibeCallToolTranscript(run, event.result, event.toolCallId);
     }
 
@@ -1244,7 +1253,7 @@ export async function runThoughtcodeSubagent(request: VibeSubagentRunRequest): P
       return;
     }
     if (event.message.role === "assistant" && event.message.stopReason === "error") {
-      subagentError = event.message.errorMessage ?? "Thoughtcode subagent failed.";
+      subagentError = event.message.errorMessage ?? THOUGHTCODE_SUBAGENT_FAILED_MESSAGE;
       if (run) {
         appendVibeCallEvent(run, "error", subagentError);
         appendTranscriptItem(run, "error", subagentError);
@@ -1260,13 +1269,13 @@ export async function runThoughtcodeSubagent(request: VibeSubagentRunRequest): P
     if (event.message.role !== "toolResult") {
       return;
     }
-    if (event.message.toolName === "VIBECALL") {
+    if (event.message.toolName === VIBE_CALL_TOOL_NAME) {
       if (run) {
         appendNestedVibeCallToolTranscript(run, event.message, event.message.toolCallId);
       }
       return;
     }
-    if (event.message.toolName !== "VIBERETURN") {
+    if (event.message.toolName !== VIBE_RETURN_TOOL_NAME) {
       return;
     }
     const details = event.message.details as Partial<VibeReturnDetails> | undefined;
@@ -1285,13 +1294,13 @@ export async function runThoughtcodeSubagent(request: VibeSubagentRunRequest): P
 
   try {
     if (signal?.aborted) {
-      throw new Error("Thoughtcode subagent aborted before prompt start.");
+      throw new Error(THOUGHTCODE_SUBAGENT_ABORTED_BEFORE_PROMPT_MESSAGE);
     }
 
     await session.bindExtensions({});
 
     if (signal?.aborted) {
-      throw new Error("Thoughtcode subagent aborted before prompt start.");
+      throw new Error(THOUGHTCODE_SUBAGENT_ABORTED_BEFORE_PROMPT_MESSAGE);
     }
 
     emitVibeCallProgress(request, request.progress);
@@ -1316,15 +1325,15 @@ export async function runThoughtcodeSubagent(request: VibeSubagentRunRequest): P
       }
       request.progress.status = "fail";
       request.progress.endedAt = Date.now();
-      request.progress.step = "fail missing VIBERETURN";
+      request.progress.step = THOUGHTCODE_MISSING_VIBE_RETURN_PROGRESS_STEP;
       if (run) {
         run.status = "error";
         run.endedAt = request.progress.endedAt;
-        run.error = "Finished without calling VIBERETURN.";
+        run.error = THOUGHTCODE_MISSING_VIBE_RETURN_MESSAGE;
         appendProgressUpdate(run, request.progress, cwd);
       }
       emitVibeCallProgress(request, request.progress, "error");
-      throw new Error("Finished without calling VIBERETURN.");
+      throw new Error(THOUGHTCODE_MISSING_VIBE_RETURN_MESSAGE);
     }
 
     request.progress.status = "done";

@@ -10,9 +10,14 @@ import { fauxAssistantMessage, fauxThinking, fauxToolCall, getApiProvider, regis
 import { mkdtemp } from "node:fs/promises";
 import { join } from "node:path";
 import {
+  THOUGHTCODE_MISSING_VIBE_RETURN_MESSAGE,
+  THOUGHTCODE_MISSING_VIBE_RETURN_PROGRESS_STEP,
   THOUGHTCODE_SYSTEM_PROMPT,
+  VIBE_CALL_TOOL_NAME,
   VIBE_CALL_TOOL_PARAMETERS,
+  VIBE_RETURN_TOOL_NAME,
   VIBE_RETURN_TOOL_PARAMETERS,
+  buildVibeReturnOutsideSubagentMessage,
   buildVibeCallSubagentPrompt,
   type VibeCallArgs,
 } from "thoughtcode-core";
@@ -78,7 +83,7 @@ describe("pi-thoughtcode", () => {
   it("exports the two Thoughtcode placeholder tools", () => {
     const tools = createThoughtcodeTools();
 
-    expect(tools.map((tool) => tool.name)).toEqual(["VIBECALL", "VIBERETURN"]);
+    expect(tools.map((tool) => tool.name)).toEqual([VIBE_CALL_TOOL_NAME, VIBE_RETURN_TOOL_NAME]);
     expect(vibeCallTool.parameters.required).toEqual(VIBE_CALL_TOOL_PARAMETERS.map((parameter) => parameter.name));
     expect(vibeReturnTool.parameters.required).toEqual(VIBE_RETURN_TOOL_PARAMETERS.map((parameter) => parameter.name));
     for (const parameter of VIBE_CALL_TOOL_PARAMETERS) {
@@ -108,7 +113,7 @@ describe("pi-thoughtcode", () => {
       },
     } as never);
 
-    expect(registered.map((tool) => tool.name)).toEqual(["VIBECALL", "VIBERETURN"]);
+    expect(registered.map((tool) => tool.name)).toEqual([VIBE_CALL_TOOL_NAME, VIBE_RETURN_TOOL_NAME]);
     expect(commands).toEqual(["thoughtcode-inspect"]);
     expect(beforeAgentStart?.({ systemPrompt: "Base prompt" }).systemPrompt).toBe(
       `Base prompt\n\n${THOUGHTCODE_SYSTEM_PROMPT}`,
@@ -142,11 +147,11 @@ describe("pi-thoughtcode", () => {
     try {
       expect(extensionsResult.errors).toEqual([]);
       expect(session.getAllTools().map((tool) => tool.name)).toEqual(
-        expect.arrayContaining(["VIBECALL", "VIBERETURN"]),
+        expect.arrayContaining([VIBE_CALL_TOOL_NAME, VIBE_RETURN_TOOL_NAME]),
       );
 
-      const vibeCall = session.getToolDefinition("VIBECALL");
-      const vibeReturn = session.getToolDefinition("VIBERETURN");
+      const vibeCall = session.getToolDefinition(VIBE_CALL_TOOL_NAME);
+      const vibeReturn = session.getToolDefinition(VIBE_RETURN_TOOL_NAME);
 
       expect(vibeCall).toBeDefined();
       expect(vibeReturn).toBeDefined();
@@ -237,9 +242,7 @@ describe("pi-thoughtcode", () => {
       undefined as never,
     );
 
-    expect(returnResult.content).toEqual([
-      { type: "text", text: "VIBERETURN ignored outside VIBECALL subagent: 27" },
-    ]);
+    expect(returnResult.content).toEqual([{ type: "text", text: buildVibeReturnOutsideSubagentMessage({ value: "27" }) }]);
     expect(returnResult.details).toEqual({ kind: "vibereturn", value: "27" });
     expect(returnResult.terminate).toBe(false);
   });
@@ -280,7 +283,7 @@ describe("pi-thoughtcode", () => {
 
     const output = component?.render(160).join("\n") ?? "";
 
-    expect(output).toContain("VIBECALL running 6s depth=1 run=tc-7 ↑815 ↓87 R565 $0.00010");
+    expect(output).toContain(`${VIBE_CALL_TOOL_NAME} running 6s depth=1 run=tc-7 ↑815 ↓87 R565 $0.00010`);
     expect(output).toContain("entry main");
     expect(output).toContain("file program.tc");
     expect(output).toContain('args x=2,y=5, payload={"items":[1,2,3,4,5,6]}');
@@ -321,7 +324,7 @@ describe("pi-thoughtcode", () => {
     const output = component?.render(120).join("\n") ?? "";
     const lines = output.split("\n").map((line) => line.trimEnd());
 
-    expect(output).toContain("VIBECALL running 6s depth=1 run=tc-8");
+    expect(output).toContain(`${VIBE_CALL_TOOL_NAME} running 6s depth=1 run=tc-8`);
     expect(output).toContain("entry main");
     expect(output).toContain("file ./program1.txt");
     expect(output).toContain("args <empty>");
@@ -358,13 +361,13 @@ describe("pi-thoughtcode", () => {
     expect(rendered).not.toContain("thinking thinking");
   });
 
-  it("renders a missing VIBERETURN failure once in the inspector", async () => {
+  it("renders a missing return failure once in the inspector", async () => {
     const [vibeCall] = createThoughtcodeTools({
       async runSubagent(request) {
         request.progress.status = "fail";
         request.progress.endedAt = Date.now();
-        request.progress.step = "fail missing VIBERETURN";
-        throw new Error("Finished without calling VIBERETURN.");
+        request.progress.step = THOUGHTCODE_MISSING_VIBE_RETURN_PROGRESS_STEP;
+        throw new Error(THOUGHTCODE_MISSING_VIBE_RETURN_MESSAGE);
       },
     });
     const callResult = await vibeCall.execute(
@@ -378,8 +381,8 @@ describe("pi-thoughtcode", () => {
 
     expect(callResult.details.status).toBe("error");
     expect(rendered).toContain("Thoughtcode tc-1 failed");
-    expect(rendered).not.toContain("missing VIBERETURN");
-    expect(rendered.match(/Finished without calling VIBERETURN\./g)?.length).toBe(1);
+    expect(rendered).not.toContain(THOUGHTCODE_MISSING_VIBE_RETURN_PROGRESS_STEP.replace(/^fail /, ""));
+    expect(rendered.split(THOUGHTCODE_MISSING_VIBE_RETURN_MESSAGE).length - 1).toBe(1);
   });
 
   it("captures child-session reasoning and VIBERETURN in the inspector transcript", async () => {
@@ -422,7 +425,7 @@ describe("pi-thoughtcode", () => {
     }
 
     faux.setResponses([
-      fauxAssistantMessage([fauxThinking("Need to return the computed value."), fauxToolCall("VIBERETURN", { value: "27" })], {
+      fauxAssistantMessage([fauxThinking("Need to return the computed value."), fauxToolCall(VIBE_RETURN_TOOL_NAME, { value: "27" })], {
         stopReason: "toolUse",
       }),
     ]);
@@ -450,13 +453,13 @@ describe("pi-thoughtcode", () => {
       expect(result.content).toEqual([{ type: "text", text: "27" }]);
       expect(run?.transcript).toEqual(expect.arrayContaining([
         expect.objectContaining({ role: "thinking", text: "Need to return the computed value." }),
-        expect.objectContaining({ role: "tool", text: "VIBERETURN 27" }),
+        expect.objectContaining({ role: "tool", text: `${VIBE_RETURN_TOOL_NAME} 27` }),
         expect.objectContaining({ role: "return", text: "27" }),
       ]));
       expect(rendered).toContain("Reasoning");
       expect(rendered).toContain("Need to return the computed value.");
       expect(rendered).toContain("Tool");
-      expect(rendered).toContain("VIBERETURN 27");
+      expect(rendered).toContain(`${VIBE_RETURN_TOOL_NAME} 27`);
       expect(rendered).not.toContain("Thinking...");
       expect(faux.state.callCount).toBe(1);
       expect(faux.getPendingResponseCount()).toBe(0);
@@ -506,17 +509,17 @@ describe("pi-thoughtcode", () => {
 
     faux.setResponses([
       fauxAssistantMessage(
-        fauxToolCall("VIBECALL", {
+        fauxToolCall(VIBE_CALL_TOOL_NAME, {
           program_file_path: "./program.txt",
           name: "inner",
           args: "x=1",
         }),
         { stopReason: "toolUse" },
       ),
-      fauxAssistantMessage(fauxToolCall("VIBERETURN", { value: "inner-result" }), {
+      fauxAssistantMessage(fauxToolCall(VIBE_RETURN_TOOL_NAME, { value: "inner-result" }), {
         stopReason: "toolUse",
       }),
-      fauxAssistantMessage(fauxToolCall("VIBERETURN", { value: "outer-result" }), {
+      fauxAssistantMessage(fauxToolCall(VIBE_RETURN_TOOL_NAME, { value: "outer-result" }), {
         stopReason: "toolUse",
       }),
     ]);
@@ -544,10 +547,10 @@ describe("pi-thoughtcode", () => {
       expect(result.content).toEqual([{ type: "text", text: "outer-result" }]);
       expect(getVibeCallRun("tc-2")).toBeDefined();
       expect(parentRun?.transcript).toEqual(expect.arrayContaining([
-        expect.objectContaining({ role: "tool", text: "VIBECALL run=tc-2 inner x=1" }),
+        expect.objectContaining({ role: "tool", text: `${VIBE_CALL_TOOL_NAME} run=tc-2 inner x=1` }),
         expect.objectContaining({ role: "return", text: "outer-result" }),
       ]));
-      expect(rendered).toContain("VIBECALL run=tc-2 inner x=1");
+      expect(rendered).toContain(`${VIBE_CALL_TOOL_NAME} run=tc-2 inner x=1`);
     } finally {
       faux.unregister();
     }
