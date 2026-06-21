@@ -39,7 +39,6 @@ import {
   buildVibeCallFailureMessage,
   buildVibeCallSubagentPrompt,
   buildCannotSpawnThoughtcodeSubagentMessage,
-  buildVibeReturnOutsideSubagentMessage,
   type ThoughtcodeToolParameter,
   type VibeCallArgs,
   type VibeReturnArgs,
@@ -1156,18 +1155,9 @@ export function createVibeReturnTool(options: ThoughtcodeToolOptions = {}) {
         value: params.value,
       };
 
-      if (!options.onVibeReturn) {
-        return textResult(
-          buildVibeReturnOutsideSubagentMessage(args),
-          {
-            kind: "vibereturn",
-            value: args.value,
-          },
-          false,
-        );
+      if (options.onVibeReturn) {
+        options.onVibeReturn(args.value);
       }
-
-      options.onVibeReturn(args.value);
 
       return textResult(
         args.value,

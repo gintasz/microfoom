@@ -17,7 +17,6 @@ import {
   VIBE_CALL_TOOL_PARAMETERS,
   VIBE_RETURN_TOOL_NAME,
   VIBE_RETURN_TOOL_PARAMETERS,
-  buildVibeReturnOutsideSubagentMessage,
   buildVibeCallSubagentPrompt,
   type VibeCallArgs,
 } from "thoughtcode-core";
@@ -233,7 +232,7 @@ describe("pi-thoughtcode", () => {
     expect(returnResult.terminate).toBe(true);
   });
 
-  it("does not terminate when VIBERETURN is called outside a VIBECALL subagent", async () => {
+  it("uses VIBERETURN as the terminal response outside a VIBECALL subagent", async () => {
     const returnResult = await vibeReturnTool.execute(
       "return-1",
       { value: "27" },
@@ -242,9 +241,9 @@ describe("pi-thoughtcode", () => {
       undefined as never,
     );
 
-    expect(returnResult.content).toEqual([{ type: "text", text: buildVibeReturnOutsideSubagentMessage({ value: "27" }) }]);
+    expect(returnResult.content).toEqual([{ type: "text", text: "27" }]);
     expect(returnResult.details).toEqual({ kind: "vibereturn", value: "27" });
-    expect(returnResult.terminate).toBe(false);
+    expect(returnResult.terminate).toBe(true);
   });
 
   it("renders a concise VIBECALL progress card", () => {

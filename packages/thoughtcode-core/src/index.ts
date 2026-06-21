@@ -96,10 +96,6 @@ export const THOUGHTCODE_SUBAGENT_ABORTED_BEFORE_PROMPT_MESSAGE = "ThoughtCode s
 export const THOUGHTCODE_MISSING_VIBE_RETURN_MESSAGE = "Finished without calling VIBERETURN.";
 export const THOUGHTCODE_MISSING_VIBE_RETURN_PROGRESS_STEP = "failed missing VIBERETURN";
 
-export function buildVibeReturnOutsideSubagentMessage(args: VibeReturnArgs): string {
-  return `${VIBE_RETURN_TOOL_NAME} ignored outside ${VIBE_CALL_TOOL_NAME} subagent: ${args.value}`;
-}
-
 export function buildVibeCallFailureMessage(status: string, message: string): string {
   return `${VIBE_CALL_TOOL_NAME} ${status}: ${message}`;
 }
