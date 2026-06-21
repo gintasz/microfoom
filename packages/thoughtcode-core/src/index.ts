@@ -55,6 +55,6 @@ export function buildVibeCallSubagentPrompt(args: VibeCallArgs): string {
   return [
     `ENTRYPOINT = ${args.name}`,
     `ENTRYPOINT_ARGS = ${args.args}`,
-    `Read ${args.program_file_path} and literally execute it as if you were an interpreter.`,
+    `Read ${args.program_file_path} and literally execute it as if you were an interpreted.`,
   ].join("\n");
 }

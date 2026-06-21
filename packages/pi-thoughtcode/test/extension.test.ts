@@ -19,6 +19,14 @@ import thoughtcodeExtension, {
 } from "../dist/index.js";
 
 const SCRATCH_DIR = "/tmp/agentic_coding";
+const plainTheme = {
+  fg(_color: string, text: string) {
+    return text;
+  },
+  bold(text: string) {
+    return text;
+  },
+};
 
 describe("pi-thoughtcode", () => {
   it("exports the two Thoughtcode placeholder tools", () => {
@@ -81,6 +89,11 @@ describe("pi-thoughtcode", () => {
   });
 
   it("spawns a subagent runner from VIBECALL and returns the VIBERETURN value", async () => {
+    const expectedPrompt = [
+      "ENTRYPOINT = mul",
+      "ENTRYPOINT_ARGS = a=3,my number=9",
+      "Read ./program.txt and literally execute it as if you were an interpreted.",
+    ].join("\n");
     const [vibeCall] = createThoughtcodeTools({
       async runSubagent(request) {
         expect(request.call).toEqual({
@@ -88,13 +101,9 @@ describe("pi-thoughtcode", () => {
           name: "mul",
           args: "a=3,my number=9",
         });
-        expect(request.prompt).toBe(
-          [
-            "ENTRYPOINT = mul",
-            "ENTRYPOINT_ARGS = a=3,my number=9",
-            "Read ./program.txt and literally execute it as if you were an interpreted.",
-          ].join("\n"),
-        );
+        expect(request.prompt).toBe(expectedPrompt);
+        expect(request.depth).toBe(1);
+        expect(request.progress).toMatchObject({ status: "run", depth: 1, step: "think" });
         return "27";
       },
     });
@@ -113,12 +122,14 @@ describe("pi-thoughtcode", () => {
       program_file_path: "./program.txt",
       name: "mul",
       args: "a=3,my number=9",
-      prompt: [
-        "ENTRYPOINT = mul",
-        "ENTRYPOINT_ARGS = a=3,my number=9",
-        "Read ./program.txt and literally execute it as if you were an interpreted.",
-      ].join("\n"),
+      prompt: expectedPrompt,
       status: "done",
+      depth: 1,
+      progress: expect.objectContaining({
+        status: "done",
+        depth: 1,
+        step: "done 27",
+      }),
       result: "27",
     });
     expect(callResult.terminate).toBe(false);
@@ -160,6 +171,98 @@ describe("pi-thoughtcode", () => {
     ]);
     expect(returnResult.details).toEqual({ kind: "vibereturn", value: "27" });
     expect(returnResult.terminate).toBe(false);
+  });
+
+  it("renders a concise VIBECALL progress card", () => {
+    const component = vibeCallTool.renderResult?.(
+      {
+        content: [{ type: "text", text: "tool read /tmp/agentic_coding/program.tc" }],
+        details: {
+          kind: "vibecall",
+          program_file_path: "/tmp/agentic_coding/program.tc",
+          name: "main",
+          args: 'x=2,y=5, payload={"items":[1,2,3,4,5,6]}',
+          prompt: [
+            "ENTRYPOINT = main",
+            "ENTRYPOINT_ARGS = x=2,y=5",
+            "Read /tmp/agentic_coding/program.tc and literally execute it as if you were an interpreted.",
+          ].join("\n"),
+          status: "running",
+          depth: 1,
+          progress: {
+            status: "run",
+            depth: 1,
+            startedAt: 0,
+            endedAt: 6000,
+            step: "tool read /tmp/agentic_coding/program.tc",
+            usage: {
+              input: 815,
+              output: 87,
+              cacheRead: 565,
+              cacheWrite: 0,
+              cost: 0.0001,
+            },
+          },
+        },
+      },
+      { expanded: false, isPartial: true },
+      plainTheme as never,
+      { cwd: "/tmp/agentic_coding" } as never,
+    );
+
+    const output = component?.render(160).join("\n") ?? "";
+
+    expect(output).toContain("VIBECALL running 6s depth=1 ↑815 ↓87 R565 $0.00010");
+    expect(output).toContain("entry main");
+    expect(output).toContain("file program.tc");
+    expect(output).toContain('args x=2,y=5, payload={"items":[1,2,3,4,5,6]}');
+    expect(output).toContain("tool read program.tc");
+    expect(output).not.toContain("d1");
+    expect(output).not.toContain("run 6s d1");
+    expect(output).not.toContain("activity");
+    expect(output).not.toContain("return:");
+  });
+
+  it("renders empty VIBECALL args and thinking state explicitly", () => {
+    const component = vibeCallTool.renderResult?.(
+      {
+        content: [{ type: "text", text: "think" }],
+        details: {
+          kind: "vibecall",
+          program_file_path: "./program1.txt",
+          name: "main",
+          args: "",
+          prompt: [
+            "ENTRYPOINT = main",
+            "ENTRYPOINT_ARGS = ",
+            "Read ./program1.txt and literally execute it as if you were an interpreted.",
+          ].join("\n"),
+          status: "running",
+          depth: 1,
+          progress: {
+            status: "run",
+            depth: 1,
+            startedAt: 0,
+            endedAt: 6000,
+            step: "think",
+          },
+        },
+      },
+      { expanded: false, isPartial: true },
+      plainTheme as never,
+      { cwd: "/tmp/agentic_coding" } as never,
+    );
+
+    const output = component?.render(120).join("\n") ?? "";
+    const lines = output.split("\n").map((line) => line.trimEnd());
+
+    expect(output).toContain("VIBECALL running 6s depth=1");
+    expect(output).toContain("entry main");
+    expect(output).toContain("file ./program1.txt");
+    expect(output).toContain("args <empty>");
+    expect(lines).toContain("thinking");
+    expect(lines).not.toContain("think");
+    expect(output).not.toContain("d1");
   });
 
   it("runs a PI child session until the child calls VIBERETURN", async () => {
@@ -226,6 +329,14 @@ describe("pi-thoughtcode", () => {
           modelRegistry,
         } as never,
         signal: undefined,
+        depth: 1,
+        progress: {
+          status: "run",
+          depth: 1,
+          startedAt: Date.now(),
+          step: "think",
+        },
+        onUpdate: undefined,
       });
 
       expect(result).toBe("27");
