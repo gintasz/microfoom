@@ -4,7 +4,7 @@ VIBEMETHOD main()
 	res = VIBECALL fac(n = 2)
 	VIBERETURN(res)
 
-VIBEMETHOD fac(n: number)
+VIBEMETHOD fac(n: number) -> int
 	if n <= 1
         VIBERETURN(1)
     else

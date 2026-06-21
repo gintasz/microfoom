@@ -157,15 +157,46 @@ export function logReminder(record: VibeCallRunRecord, text: string): void {
   write(contextFromRecord(record), { kind: "reminder", text });
 }
 
+/** Run id used for the top-level pi agent that interprets the ENTRYPOINT directly. */
+export const MAIN_RUN_ID = "main";
+
+function mainContext(traceId: string, cwd: string | undefined): RunLogContext {
+  return { traceId, runId: MAIN_RUN_ID, depth: 0, cwd };
+}
+
+export function logTopLevelStart(traceId: string, cwd: string | undefined): void {
+  write(mainContext(traceId, cwd), { kind: "run.start", name: MAIN_RUN_ID });
+}
+
+/**
+ * Log the end of a top-level turn. If the turn produced no VIBERETURN tool call, flag it — that is
+ * the "agent answered in plain text instead of calling VIBERETURN" failure, otherwise invisible.
+ */
+export function logTopLevelEnd(traceId: string, cwd: string | undefined, calledVibeReturn: boolean): void {
+  write(mainContext(traceId, cwd), {
+    kind: "run.end",
+    status: calledVibeReturn ? "done" : "warn",
+    ...(calledVibeReturn ? {} : { warning: "turn ended without calling VIBERETURN" }),
+  });
+}
+
+/** Log a top-level pi-agent event (same milestone mapping as subagent events). */
+export function logTopLevelEvent(traceId: string, cwd: string | undefined, event: AgentSessionEvent): void {
+  logEventForContext(mainContext(traceId, cwd), event);
+}
+
 /**
  * Translate a raw child-session event into a milestone log entry. Streaming deltas are ignored;
  * we record completed thinking/text messages, tool calls and their results, returns, and errors.
  */
 export function logSessionEvent(request: VibeSubagentRunRequest, event: AgentSessionEvent): void {
+  logEventForContext(contextFromRequest(request), event);
+}
+
+function logEventForContext(context: RunLogContext, event: AgentSessionEvent): void {
   if (!isEnabled()) {
     return;
   }
-  const context = contextFromRequest(request);
 
   if (event.type === "tool_execution_start") {
     write(context, { kind: "tool.start", toolName: event.toolName, toolCallId: event.toolCallId, args: cap(safeJson(event.args)) });

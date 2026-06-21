@@ -1,16 +1,47 @@
-import type { ExtensionAPI, ExtensionFactory } from "@earendil-works/pi-coding-agent";
-import { VIBE_CALL_TOOL_NAME, appendThoughtcodeSystemPrompt } from "thoughtcode-core";
-import { listVibeCallRuns } from "./runs/index.js";
+import type { AgentSessionEvent, ExtensionAPI, ExtensionFactory } from "@earendil-works/pi-coding-agent";
+import { VIBE_CALL_TOOL_NAME, VIBE_RETURN_TOOL_NAME, appendThoughtcodeSystemPrompt } from "thoughtcode-core";
+import {
+  MAIN_RUN_ID,
+  listVibeCallRuns,
+  logTopLevelEnd,
+  logTopLevelEvent,
+  logTopLevelStart,
+} from "./runs/index.js";
 import { createThoughtcodeTools } from "./tools/index.js";
 import { inspectThoughtcodeRun } from "./ui/index.js";
 
 const thoughtcodeExtension: ExtensionFactory = (pi: ExtensionAPI) => {
-  for (const tool of createThoughtcodeTools()) {
+  // One trace id for this process ties the top-level pi agent together with every VIBECALL subagent
+  // it spawns, so the whole nested run lands in a single debug-log file.
+  const traceId = `${MAIN_RUN_ID}-${Date.now()}`;
+  let calledVibeReturn = false;
+
+  for (const tool of createThoughtcodeTools({ traceId, parentRunId: MAIN_RUN_ID })) {
     pi.registerTool(tool);
   }
   pi.on("before_agent_start", (event) => ({
     systemPrompt: appendThoughtcodeSystemPrompt(event.systemPrompt),
   }));
+
+  pi.on("agent_start", (_event, ctx) => {
+    calledVibeReturn = false;
+    logTopLevelStart(traceId, ctx.cwd);
+  });
+  pi.on("message_end", (event, ctx) => {
+    logTopLevelEvent(traceId, ctx.cwd, event as unknown as AgentSessionEvent);
+  });
+  pi.on("tool_execution_start", (event, ctx) => {
+    logTopLevelEvent(traceId, ctx.cwd, event as unknown as AgentSessionEvent);
+  });
+  pi.on("tool_execution_end", (event, ctx) => {
+    if (event.toolName === VIBE_RETURN_TOOL_NAME && !event.isError) {
+      calledVibeReturn = true;
+    }
+    logTopLevelEvent(traceId, ctx.cwd, event as unknown as AgentSessionEvent);
+  });
+  pi.on("agent_end", (_event, ctx) => {
+    logTopLevelEnd(traceId, ctx.cwd, calledVibeReturn);
+  });
   pi.registerCommand("thoughtcode-inspect", {
     description: `Inspect a live or recent Thoughtcode ${VIBE_CALL_TOOL_NAME} run. Usage: /thoughtcode-inspect <runId|latest>`,
     getArgumentCompletions(argumentPrefix) {
