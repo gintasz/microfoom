@@ -1,7 +1,7 @@
 # ThoughtCode program
 
 VIBEMETHOD main()
-	res = VIBECALL fac(n = 4)
+	res = VIBECALL fac(n = 2)
 	VIBERETURN(res)
 
 VIBEMETHOD fac(n: number)

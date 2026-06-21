@@ -18,7 +18,8 @@ import {
   markerForProgress,
 } from "../shared/display.js";
 import { truncateEnd } from "../shared/truncate.js";
-import type { VibeCallRunRecord, VibeCallTranscriptItem } from "../types.js";
+import type { VibeCallRunRecord } from "../types.js";
+import { appendTranscriptLines } from "./transcript-lines.js";
 
 function padToWidth(value: string, width: number): string {
   const clipped = truncateToWidth(value.replace(/\t/g, "  "), width, "");
@@ -154,28 +155,7 @@ export class ThoughtcodeInspectOverlay implements Component {
     }
 
     lines.push("", th.fg("muted", "Subagent"));
-    if (this.record.transcript.length === 0) {
-      lines.push(th.fg("dim", "  Waiting for subagent activity..."));
-    } else {
-      const labels: Record<VibeCallTranscriptItem["role"], string> = {
-        assistant: "Assistant",
-        tool: "Tool",
-        return: "Return",
-        error: "Error",
-        thinking: "Reasoning",
-        status: "Status",
-      };
-      for (const item of this.record.transcript) {
-        lines.push(th.fg("accent", labels[item.role]));
-        for (const line of item.text.split("\n")) {
-          lines.push(...wrapTextWithAnsi(`  ${line}`, width));
-        }
-        lines.push("");
-      }
-      if (lines.at(-1) === "") {
-        lines.pop();
-      }
-    }
+    appendTranscriptLines(lines, this.record.transcript, th, width);
 
     if (this.record.result !== undefined) {
       lines.push("", `${th.fg("muted", "result")} ${truncateEnd(this.record.result, EXPANDED_VALUE_MAX_LENGTH)}`);

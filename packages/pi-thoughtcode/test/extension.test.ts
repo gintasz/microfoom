@@ -282,13 +282,14 @@ describe("pi-thoughtcode", () => {
 
     const output = component?.render(160).join("\n") ?? "";
 
-    expect(output).toContain(`${VIBE_CALL_TOOL_NAME} running 6s depth=1 run=tc-7 ↑815 ↓87 R565 $0.00010`);
+    expect(output).toContain(`${VIBE_CALL_TOOL_NAME} running 6s run=tc-7 ↑815 ↓87 R565 $0.00010`);
     expect(output).toContain("entry main");
     expect(output).toContain("file program.tc");
     expect(output).toContain('args x=2,y=5, payload={"items":[1,2,3,4,5,6]}');
     expect(output).toContain("tool read program.tc");
     expect(output).not.toContain("d1");
     expect(output).not.toContain("run 6s d1");
+    expect(output).not.toContain("depth=1");
     expect(output).not.toContain("activity");
     expect(output).not.toContain("return:");
   });
@@ -323,13 +324,66 @@ describe("pi-thoughtcode", () => {
     const output = component?.render(120).join("\n") ?? "";
     const lines = output.split("\n").map((line) => line.trimEnd());
 
-    expect(output).toContain(`${VIBE_CALL_TOOL_NAME} running 6s depth=1 run=tc-8`);
+    expect(output).toContain(`${VIBE_CALL_TOOL_NAME} running 6s run=tc-8`);
     expect(output).toContain("entry main");
     expect(output).toContain("file ./program1.txt");
     expect(output).toContain("args <empty>");
     expect(lines).toContain("thinking");
     expect(lines).not.toContain("think");
     expect(output).not.toContain("d1");
+    expect(output).not.toContain("depth=1");
+  });
+
+  it("renders expanded VIBECALL transcript without dumping raw events", () => {
+    const component = vibeCallTool.renderResult?.(
+      {
+        content: [{ type: "text", text: "done 24" }],
+        details: {
+          kind: "vibecall",
+          runId: "tc-9",
+          program_file_path: "./program2.txt",
+          name: "fac",
+          args: "n=4",
+          prompt: vibePrompt("./program2.txt", "fac", "n=4"),
+          status: "done",
+          depth: 1,
+          progress: {
+            status: "done",
+            depth: 1,
+            startedAt: 0,
+            endedAt: 72000,
+            step: "done 24",
+          },
+          transcript: [
+            { t: 1, role: "assistant", text: "Now I have the result of fac(2), which is 2." },
+            { t: 2, role: "tool", text: "VIBERETURN 24" },
+            { t: 3, role: "return", text: "24" },
+          ],
+          result: "24",
+        },
+      },
+      { expanded: true, isPartial: false },
+      plainTheme as never,
+      { cwd: "/tmp/agentic_coding" } as never,
+    );
+
+    const output = component?.render(160).join("\n") ?? "";
+
+    expect(output).toContain(`${VIBE_CALL_TOOL_NAME} done 1m12s run=tc-9`);
+    expect(output).toContain("debug");
+    expect(output).toContain("depth 1");
+    expect(output).toContain("prompt ENTRYPOINT = fac ENTRYPOINT_ARGS = n=4");
+    expect(output).toContain("Subagent");
+    expect(output).toContain("Assistant");
+    expect(output).toContain("Now I have the result of fac(2), which is 2.");
+    expect(output).toContain("Tool");
+    expect(output).toContain("VIBERETURN 24");
+    expect(output).toContain("Return");
+    expect(output).toContain("24");
+    expect(output).not.toContain("events");
+    expect(output).not.toContain("depth=1");
+    expect(output).not.toContain("responding responding");
+    expect(output).not.toContain("tool tool");
   });
 
   it("opens a read-only inspector overlay for a VIBECALL run", async () => {

@@ -17,6 +17,7 @@ import {
 import { truncateEnd } from "../shared/truncate.js";
 import type { VibeCallParams } from "../tools/schema.js";
 import type { VibeCallDetails } from "../types.js";
+import { appendTranscriptLines } from "./transcript-lines.js";
 
 export function renderVibeCallCall(args: VibeCallParams, theme: Theme, executionStarted: boolean): Text {
   if (executionStarted) {
@@ -44,7 +45,6 @@ export function renderVibeCallResult(
     theme.fg("toolTitle", theme.bold(VIBE_CALL_TOOL_NAME)),
     theme.fg(status === "done" ? "success" : status === "failed" ? "error" : "accent", status),
     duration,
-    `depth=${progress?.depth ?? details.depth}`,
     `run=${details.runId}`,
     usage,
   ].filter(Boolean);
@@ -67,15 +67,12 @@ export function renderVibeCallResult(
   }
 
   if (expanded) {
-    lines.push("", theme.fg("muted", "prompt"));
-    for (const line of details.prompt.split("\n")) {
-      lines.push(`  ${line}`);
-    }
-    if (details.events?.length) {
-      lines.push("", theme.fg("muted", "events"));
-      for (const event of details.events.slice(-30)) {
-        lines.push(`  ${event.type} ${event.text}`);
-      }
+    lines.push("", theme.fg("muted", "debug"));
+    lines.push(`  ${theme.fg("muted", "depth")} ${progress?.depth ?? details.depth}`);
+    lines.push(`  ${theme.fg("muted", "prompt")} ${truncateEnd(details.prompt.replace(/\s+/g, " "), 220)}`);
+    if (details.transcript?.length) {
+      lines.push("", theme.fg("muted", "Subagent"));
+      appendTranscriptLines(lines, details.transcript, theme, undefined);
     }
   }
 
