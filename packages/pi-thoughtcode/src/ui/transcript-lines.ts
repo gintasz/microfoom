@@ -25,7 +25,13 @@ export function appendTranscriptLines(
   for (const item of transcript) {
     lines.push(theme.fg("accent", transcriptLabels[item.role]));
     for (const line of item.text.split("\n")) {
-      lines.push(...(width === undefined ? [`  ${line}`] : wrapTextWithAnsi(`  ${line}`, width)));
+      if (width === undefined) {
+        lines.push(`  ${line}`);
+      } else {
+        for (const segment of wrapTextWithAnsi(line, Math.max(1, width - 2))) {
+          lines.push(`  ${segment}`);
+        }
+      }
     }
     lines.push("");
   }

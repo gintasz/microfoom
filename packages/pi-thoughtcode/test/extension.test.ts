@@ -494,8 +494,11 @@ describe("pi-thoughtcode", () => {
     expect(output).toContain(`${VIBE_CALL_TOOL_NAME} done 1m12s id=tc-9`);
     expect(output).toContain("debug");
     expect(output).toContain("depth 1");
-    expect(output).toContain("prompt ENTRYPOINT = fac ENTRYPOINT_ARGS = n=4");
+    expect(output).not.toContain("prompt ENTRYPOINT = fac ENTRYPOINT_ARGS = n=4");
     expect(output).toContain("Subagent");
+    expect(output).toContain("User");
+    expect(output).toContain("ENTRYPOINT = fac");
+    expect(output).toContain("ENTRYPOINT_ARGS = n=4");
     expect(output).toContain("Assistant");
     expect(output).toContain("Now I have the result of fac(2), which is 2.");
     expect(output).toContain("Tool");

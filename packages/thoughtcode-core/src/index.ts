@@ -116,7 +116,7 @@ export function buildVibeCallSubagentPrompt(args: VibeCallArgs): string {
     `ENTRYPOINT = ${args.name}`,
     `ENTRYPOINT_ARGS = ${args.args}`,
     `You are called to execute a VIBEMETHOD.`,
-    `Read a ThoughtCode program at ${args.program_file_path} and start executing it at the point of VIBEMETHOD, \
-    corresponding to the ENTRYPOINT, and use the ENTRYPOINT_ARGS as arguments for it.`
+    `Read a ThoughtCode program at ${args.program_file_path} and start executing it at the point of VIBEMETHOD, ` +
+      `corresponding to the ENTRYPOINT, and use the ENTRYPOINT_ARGS as arguments for it.`
   ].join("\n");
 }

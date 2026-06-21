@@ -1,5 +1,5 @@
 import type { AgentToolResult, Theme } from "@earendil-works/pi-coding-agent";
-import { type Component, Text, visibleWidth } from "@earendil-works/pi-tui";
+import { type Component, Text, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { VIBE_CALL_TOOL_NAME } from "thoughtcode-core";
 import {
   COLLAPSED_ARGS_MAX_LENGTH,
@@ -19,14 +19,10 @@ import type { VibeCallParams } from "../tools/schema.js";
 import type { VibeCallDetails } from "../types.js";
 import { appendTranscriptLines } from "./transcript-lines.js";
 
-export function renderVibeCallCall(args: VibeCallParams, theme: Theme, executionStarted: boolean): Text {
-  if (executionStarted) {
-    return new Text("", 0, 0);
-  }
-  const name = args.name || "unknown";
-  const preview = truncateEnd(args.args || "", 80);
-  const suffix = preview ? ` ${theme.fg("dim", preview)}` : "";
-  return new Text(`${theme.fg("toolTitle", theme.bold(VIBE_CALL_TOOL_NAME))} ${theme.fg("muted", name)}${suffix}`, 0, 0);
+export function renderVibeCallCall(_args: VibeCallParams, _theme: Theme, _executionStarted: boolean): Text {
+  // The result card (renderVibeCallResult) renders every state — pending progress and done —
+  // so a separate call-header line is always redundant. Suppress it to avoid a duplicate VIBECALL row.
+  return new Text("", 0, 0);
 }
 
 export function renderVibeCallResult(
@@ -91,11 +87,16 @@ function renderVibeCallResultLines(
   if (expanded) {
     lines.push("", theme.fg("muted", "debug"));
     lines.push(`  ${theme.fg("muted", "depth")} ${progress?.depth ?? details.depth}`);
-    lines.push(`  ${theme.fg("muted", "prompt")} ${truncateEnd(details.prompt.replace(/\s+/g, " "), 220)}`);
-    if (details.transcript?.length) {
-      lines.push("", theme.fg("muted", "Subagent"));
-      appendTranscriptLines(lines, details.transcript, theme, undefined);
+
+    lines.push("", theme.fg("muted", "Subagent"));
+    lines.push(theme.fg("accent", "User"));
+    for (const line of details.prompt.split("\n")) {
+      for (const segment of wrapTextWithAnsi(line, Math.max(1, width - 2))) {
+        lines.push(`  ${segment}`);
+      }
     }
+    lines.push("");
+    appendTranscriptLines(lines, details.transcript ?? [], theme, width);
   }
 
   return lines;
