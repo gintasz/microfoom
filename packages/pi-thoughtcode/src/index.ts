@@ -24,6 +24,7 @@ import {
 } from "@earendil-works/pi-tui";
 import { isAbsolute, relative } from "node:path";
 import {
+  THOUGHTCODE_SYSTEM_PROMPT,
   VIBE_CALL_TOOL_PARAMETERS,
   VIBE_CALL_TOOL_DESCRIPTION,
   VIBE_RETURN_TOOL_PARAMETERS,
@@ -137,6 +138,7 @@ const PATH_MAX_LENGTH = 120;
 const STEP_MAX_LENGTH = 180;
 const MAX_RUN_EVENTS = 200;
 const INSPECT_VIEWPORT_HEIGHT_PCT = 80;
+const THOUGHTCODE_SYSTEM_PROMPT_MARKER = "<!-- thoughtcode:begin -->";
 
 export interface VibeCallRunRecord {
   id: string;
@@ -520,6 +522,13 @@ function getTextContent(content: AgentToolResult<unknown>["content"]): string {
     .map((part) => (part.type === "text" ? part.text : ""))
     .filter(Boolean)
     .join("\n");
+}
+
+function appendThoughtcodeSystemPrompt(systemPrompt: string): string {
+  if (systemPrompt.includes(THOUGHTCODE_SYSTEM_PROMPT_MARKER)) {
+    return systemPrompt;
+  }
+  return systemPrompt.trimEnd() ? `${systemPrompt.trimEnd()}\n\n${THOUGHTCODE_SYSTEM_PROMPT}` : THOUGHTCODE_SYSTEM_PROMPT;
 }
 
 function markerForProgress(progress: VibeCallProgress | undefined, status: VibeCallDetails["status"], theme: Theme): string {
@@ -1286,7 +1295,7 @@ export async function runThoughtcodeSubagent(request: VibeSubagentRunRequest): P
     }
 
     emitVibeCallProgress(request, request.progress);
-    await session.prompt(request.prompt, {
+    await session.prompt(appendThoughtcodeSystemPrompt(request.prompt), {
       expandPromptTemplates: false,
       source: "extension",
     });
@@ -1350,6 +1359,9 @@ const thoughtcodeExtension: ExtensionFactory = (pi: ExtensionAPI) => {
   for (const tool of createThoughtcodeTools()) {
     pi.registerTool(tool);
   }
+  pi.on("before_agent_start", (event) => ({
+    systemPrompt: appendThoughtcodeSystemPrompt(event.systemPrompt),
+  }));
   pi.registerCommand("thoughtcode-inspect", {
     description: "Inspect a live or recent Thoughtcode VIBECALL run. Usage: /thoughtcode-inspect <runId|latest>",
     getArgumentCompletions(argumentPrefix) {

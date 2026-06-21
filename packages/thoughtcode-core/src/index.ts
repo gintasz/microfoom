@@ -83,10 +83,17 @@ export const THOUGHTCODE_TOOL_DESCRIPTIONS = [
   VIBE_RETURN_TOOL_DESCRIPTION,
 ] as const;
 
+export const THOUGHTCODE_SYSTEM_PROMPT = [
+  "<!-- thoughtcode:begin -->",
+  "When you are called to execute a VIBEMETHOD, do not call VIBECALL tool for this ENTRYPOINT - it is your job to interpret it.",
+  "<!-- thoughtcode:end -->",
+].join("\n");
+
 export function buildVibeCallSubagentPrompt(args: VibeCallArgs): string {
   return [
     `ENTRYPOINT = ${args.name}`,
     `ENTRYPOINT_ARGS = ${args.args}`,
+    `You are called to execute a VIBEMETHOD.`,
     `Read a ThoughtCode program at ${args.program_file_path} and start executing it at the point of VIBEMETHOD, \
     corresponding to the ENTRYPOINT, and use the ENTRYPOINT_ARGS as arguments for it.`
   ].join("\n");

@@ -10,6 +10,7 @@ import { fauxAssistantMessage, fauxThinking, fauxToolCall, getApiProvider, regis
 import { mkdtemp } from "node:fs/promises";
 import { join } from "node:path";
 import {
+  THOUGHTCODE_SYSTEM_PROMPT,
   VIBE_CALL_TOOL_PARAMETERS,
   VIBE_RETURN_TOOL_PARAMETERS,
   buildVibeCallSubagentPrompt,
@@ -91,8 +92,14 @@ describe("pi-thoughtcode", () => {
   it("registers tools through the PI extension factory", () => {
     const registered: ToolDefinition[] = [];
     const commands: string[] = [];
+    let beforeAgentStart: ((event: { systemPrompt: string }) => { systemPrompt: string }) | undefined;
 
     thoughtcodeExtension({
+      on(event, handler) {
+        if (event === "before_agent_start") {
+          beforeAgentStart = handler as typeof beforeAgentStart;
+        }
+      },
       registerTool(tool) {
         registered.push(tool);
       },
@@ -103,6 +110,10 @@ describe("pi-thoughtcode", () => {
 
     expect(registered.map((tool) => tool.name)).toEqual(["VIBECALL", "VIBERETURN"]);
     expect(commands).toEqual(["thoughtcode-inspect"]);
+    expect(beforeAgentStart?.({ systemPrompt: "Base prompt" }).systemPrompt).toBe(
+      `Base prompt\n\n${THOUGHTCODE_SYSTEM_PROMPT}`,
+    );
+    expect(beforeAgentStart?.({ systemPrompt: THOUGHTCODE_SYSTEM_PROMPT }).systemPrompt).toBe(THOUGHTCODE_SYSTEM_PROMPT);
   });
 
   it("loads into a PI AgentSession and exposes executable tools", async () => {
