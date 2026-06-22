@@ -37,6 +37,7 @@ import {
   logSessionEvent,
   vibeCallDetailsFromToolResult,
 } from "../runs/index.js";
+import { resolveDecorators } from "./decorators.js";
 import { resolveReturnType } from "./return-type.js";
 import { VibeThrowError } from "./vibe-throw.js";
 import { STEP_MAX_LENGTH } from "../shared/display.js";
@@ -47,7 +48,7 @@ import { createThoughtcodeTools } from "./index.js";
 
 export async function runThoughtcodeSubagent(request: VibeSubagentRunRequest): Promise<string> {
   const { ctx, signal } = request;
-  const model = ctx.model;
+  let model = ctx.model;
   const run = getVibeCallRun(request.runId);
 
   if (!model) {
@@ -72,6 +73,28 @@ export async function runThoughtcodeSubagent(request: VibeSubagentRunRequest): P
     );
   }
   const returnType = resolvedReturnType.status === "ok" ? resolvedReturnType.type : undefined;
+
+  const resolvedDecorators = await resolveDecorators(request.call.program_file_path, request.call.name, ctx.cwd);
+  if (resolvedDecorators.status === "invalid") {
+    // Bad decorators are a program bug; fail the VIBECALL loudly.
+    throw new Error(
+      `VIBEFUNCTION \`${request.call.name}\` has invalid decorators: ${resolvedDecorators.errors.join("; ")}`,
+    );
+  }
+  const runConfig = resolvedDecorators.status === "ok" ? resolvedDecorators.config : {};
+
+  if (runConfig.modelId) {
+    const requested = ctx.modelRegistry
+      ?.getAll()
+      .find((candidate) => candidate.id === runConfig.modelId || `${candidate.provider}/${candidate.id}` === runConfig.modelId);
+    if (!requested) {
+      throw new Error(
+        `VIBEFUNCTION \`${request.call.name}\` requests model \`${runConfig.modelId}\` via @model, which is not available.`,
+      );
+    }
+    model = requested;
+  }
+
   const childTools = createThoughtcodeTools({
     depth: request.depth + 1,
     traceId: request.traceId,
@@ -110,7 +133,34 @@ export async function runThoughtcodeSubagent(request: VibeSubagentRunRequest): P
     resourceLoader,
     customTools: [...childTools],
     tools: ["read", VIBE_CALL_TOOL_NAME, VIBE_RETURN_TOOL_NAME, VIBE_LOAD_PROGRAM_TOOL_NAME, VIBE_THROW_TOOL_NAME],
+    ...(runConfig.thinkingLevel ? { thinkingLevel: runConfig.thinkingLevel } : {}),
   });
+
+  // @timeout / @budget abort this run; parent signal aborts too. abortReason distinguishes a deliberate
+  // limit breach (surfaced as a VibeThrowError) from a plain parent cancel.
+  const runController = new AbortController();
+  let abortReason: string | undefined;
+  const onParentAbort = () => runController.abort();
+  if (signal) {
+    if (signal.aborted) runController.abort();
+    else signal.addEventListener("abort", onParentAbort, { once: true });
+  }
+  let timeoutTimer: ReturnType<typeof setTimeout> | undefined;
+  if (runConfig.timeoutMs !== undefined) {
+    timeoutTimer = setTimeout(() => {
+      abortReason ??= `exceeded its ${runConfig.timeoutMs! / 1000}s timeout`;
+      runController.abort();
+    }, runConfig.timeoutMs);
+    timeoutTimer.unref?.();
+  }
+  const effectiveSignal = runController.signal;
+  const throwIfAborted = () => {
+    if (!effectiveSignal.aborted) return;
+    if (abortReason) {
+      throw new VibeThrowError(`VIBEFUNCTION \`${request.call.name}\` ${abortReason}.`);
+    }
+    throw new Error(THOUGHTCODE_SUBAGENT_ABORTED_BEFORE_PROMPT_MESSAGE);
+  };
 
   const unsubscribe = session.subscribe((event) => {
     logSessionEvent(request, event);
@@ -139,6 +189,15 @@ export async function runThoughtcodeSubagent(request: VibeSubagentRunRequest): P
         appendProgressUpdate(run, request.progress, cwd, toolCallId);
       }
       emitVibeCallProgress(request, request.progress);
+    }
+
+    if (
+      runConfig.budgetUsd !== undefined &&
+      !runController.signal.aborted &&
+      (request.progress.usage?.cost ?? 0) > runConfig.budgetUsd
+    ) {
+      abortReason ??= `exceeded its $${runConfig.budgetUsd} cost budget`;
+      runController.abort();
     }
 
     if (run && event.type === "tool_execution_update" && event.toolName === VIBE_CALL_TOOL_NAME) {
@@ -181,32 +240,28 @@ export async function runThoughtcodeSubagent(request: VibeSubagentRunRequest): P
     returnedValue = typeof details?.value === "string" ? details.value : getTextContent(event.message.content);
   });
 
-  let abortHandler: (() => void) | undefined;
-  if (signal) {
-    abortHandler = () => {
-      void session.abort();
-    };
-    if (!signal.aborted) {
-      signal.addEventListener("abort", abortHandler, { once: true });
-    }
+  const abortHandler = () => {
+    void session.abort();
+  };
+  if (effectiveSignal.aborted) {
+    void session.abort();
+  } else {
+    effectiveSignal.addEventListener("abort", abortHandler, { once: true });
   }
 
   try {
-    if (signal?.aborted) {
-      throw new Error(THOUGHTCODE_SUBAGENT_ABORTED_BEFORE_PROMPT_MESSAGE);
-    }
+    throwIfAborted();
 
     await session.bindExtensions({});
 
-    if (signal?.aborted) {
-      throw new Error(THOUGHTCODE_SUBAGENT_ABORTED_BEFORE_PROMPT_MESSAGE);
-    }
+    throwIfAborted();
 
     emitVibeCallProgress(request, request.progress);
     await session.prompt(appendThoughtcodeSystemPrompt(request.prompt), {
       expandPromptTemplates: false,
       source: "extension",
     });
+    throwIfAborted();
 
     // The subagent sometimes ends its turn without calling VIBERETURN. Remind it with a
     // follow-up user message and let it try again, bounded so a stubborn agent can't loop forever.
@@ -218,9 +273,7 @@ export async function runThoughtcodeSubagent(request: VibeSubagentRunRequest): P
       reminders < THOUGHTCODE_MAX_VIBE_RETURN_REMINDERS;
       reminders++
     ) {
-      if (signal?.aborted) {
-        throw new Error(THOUGHTCODE_SUBAGENT_ABORTED_BEFORE_PROMPT_MESSAGE);
-      }
+      throwIfAborted();
       if (run) {
         appendTranscriptItem(run, "status", THOUGHTCODE_VIBE_RETURN_REMINDER_MESSAGE);
         logReminder(run, THOUGHTCODE_VIBE_RETURN_REMINDER_MESSAGE);
@@ -229,6 +282,7 @@ export async function runThoughtcodeSubagent(request: VibeSubagentRunRequest): P
         expandPromptTemplates: false,
         source: "extension",
       });
+      throwIfAborted();
     }
 
     if (thrownMessage !== undefined) {
@@ -289,10 +343,14 @@ export async function runThoughtcodeSubagent(request: VibeSubagentRunRequest): P
     emitVibeCallProgress(request, request.progress);
     return returnedValue;
   } finally {
-    unsubscribe();
-    if (signal && abortHandler) {
-      signal.removeEventListener("abort", abortHandler);
+    if (timeoutTimer) {
+      clearTimeout(timeoutTimer);
     }
+    unsubscribe();
+    if (signal) {
+      signal.removeEventListener("abort", onParentAbort);
+    }
+    effectiveSignal.removeEventListener("abort", abortHandler);
     session.dispose();
   }
 }

@@ -197,8 +197,171 @@ export function listVibeFunctionReturnTypes(programText: string): { name: string
   return declarations;
 }
 
+/** List every declared VIBEFUNCTION name, in source order. */
+export function listVibeFunctionNames(programText: string): string[] {
+  const pattern = /^\s*VIBEFUNCTION\s+([A-Za-z_]\w*)\s*\(/gm;
+  const names: string[] = [];
+  for (let match = pattern.exec(programText); match !== null; match = pattern.exec(programText)) {
+    names.push(match[1]);
+  }
+  return names;
+}
+
 export function buildVibeFunctionNotFoundMessage(functionName: string, programFilePath: string): string {
   return `VIBEFUNCTION \`${functionName}\` is not defined in ${programFilePath}.`;
+}
+
+// ---------------------------------------------------------------------------
+// Decorator parsing (interface layer). A decorator is one `@name(...)` line
+// directly above a VIBEFUNCTION declaration. We hand-parse the trivial outer
+// `@name(args)` shape and delegate every value literal to JSON.parse, so we
+// never reinvent string/number/escaping handling. Semantics (what each
+// decorator does) live in the runtime registry, not here.
+// ---------------------------------------------------------------------------
+
+export interface ParsedDecorator {
+  name: string;
+  /** Present when called with a single positional argument, e.g. `@model("opus")`. */
+  positional?: unknown;
+  /** Keyword arguments, e.g. `@retry(times=3)`. Empty when none. */
+  kwargs: Record<string, unknown>;
+}
+
+export interface DecoratorParseResult {
+  decorators: ParsedDecorator[];
+  errors: string[];
+}
+
+/** Split on top-level commas only — ignores commas inside strings, [], {}, (). */
+function splitTopLevelArgs(input: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let quote: '"' | "'" | undefined;
+  let current = "";
+  for (let i = 0; i < input.length; i += 1) {
+    const ch = input[i];
+    if (quote) {
+      current += ch;
+      if (ch === "\\" && i + 1 < input.length) {
+        current += input[i + 1];
+        i += 1;
+      } else if (ch === quote) {
+        quote = undefined;
+      }
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      current += ch;
+      continue;
+    }
+    if (ch === "[" || ch === "{" || ch === "(") {
+      depth += 1;
+    } else if (ch === "]" || ch === "}" || ch === ")") {
+      depth -= 1;
+    }
+    if (ch === "," && depth === 0) {
+      parts.push(current);
+      current = "";
+      continue;
+    }
+    current += ch;
+  }
+  parts.push(current);
+  return parts.map((part) => part.trim()).filter((part) => part.length > 0);
+}
+
+function parseLiteral(raw: string): { ok: true; value: unknown } | { ok: false } {
+  try {
+    return { ok: true, value: JSON.parse(raw.trim()) };
+  } catch {
+    return { ok: false };
+  }
+}
+
+function parseDecoratorLine(line: string): ParsedDecorator | { error: string } {
+  const match = /^\s*@([A-Za-z_]\w*)\s*(?:\(([\s\S]*)\))?\s*$/.exec(line);
+  if (!match) {
+    return { error: `Malformed decorator: ${line.trim()}` };
+  }
+  const name = match[1];
+  const inner = match[2];
+  const kwargs: Record<string, unknown> = {};
+  let positional: unknown;
+  let hasPositional = false;
+
+  if (inner !== undefined && inner.trim() !== "") {
+    for (const part of splitTopLevelArgs(inner)) {
+      const kw = /^([A-Za-z_]\w*)\s*=\s*([\s\S]+)$/.exec(part);
+      if (kw) {
+        const value = parseLiteral(kw[2]);
+        if (!value.ok) {
+          return { error: `@${name}: invalid value for ${kw[1]} (strings must be double-quoted): ${kw[2].trim()}` };
+        }
+        kwargs[kw[1]] = value.value;
+      } else {
+        if (hasPositional) {
+          return { error: `@${name}: only one positional argument is allowed` };
+        }
+        const value = parseLiteral(part);
+        if (!value.ok) {
+          return { error: `@${name}: invalid argument (strings must be double-quoted): ${part}` };
+        }
+        positional = value.value;
+        hasPositional = true;
+      }
+    }
+    if (hasPositional && Object.keys(kwargs).length > 0) {
+      return { error: `@${name}: cannot mix positional and keyword arguments` };
+    }
+  }
+
+  return hasPositional ? { name, positional, kwargs } : { name, kwargs };
+}
+
+/**
+ * Parse the decorator lines directly above a VIBEFUNCTION declaration. Blank lines between decorators
+ * are allowed; the first non-blank, non-decorator line stops the scan. Returns parsed decorators in
+ * source order plus any per-line parse errors.
+ */
+export function parseDecoratorsForFunction(programText: string, functionName: string): DecoratorParseResult {
+  const lines = programText.split("\n");
+  const declPattern = new RegExp(`^\\s*VIBEFUNCTION\\s+${escapeRegExp(functionName)}\\s*\\(`);
+  let declIndex = -1;
+  for (let i = 0; i < lines.length; i += 1) {
+    if (declPattern.test(lines[i])) {
+      declIndex = i;
+      break;
+    }
+  }
+  if (declIndex === -1) {
+    return { decorators: [], errors: [] };
+  }
+
+  const decoratorLines: string[] = [];
+  for (let i = declIndex - 1; i >= 0; i -= 1) {
+    const line = lines[i];
+    if (line.trim() === "") {
+      continue;
+    }
+    if (/^\s*@/.test(line)) {
+      decoratorLines.unshift(line);
+      continue;
+    }
+    break;
+  }
+
+  const decorators: ParsedDecorator[] = [];
+  const errors: string[] = [];
+  for (const line of decoratorLines) {
+    const parsed = parseDecoratorLine(line);
+    if ("error" in parsed) {
+      errors.push(parsed.error);
+    } else {
+      decorators.push(parsed);
+    }
+  }
+  return { decorators, errors };
 }
 
 export function buildVibeLoadProgramUnreadableMessage(programFilePath: string): string {

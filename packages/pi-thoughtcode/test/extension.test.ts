@@ -6,7 +6,14 @@ import {
   createAgentSession,
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import { fauxAssistantMessage, fauxThinking, fauxToolCall, getApiProvider, registerFauxProvider } from "@earendil-works/pi-ai";
+import {
+  createAssistantMessageEventStream,
+  fauxAssistantMessage,
+  fauxThinking,
+  fauxToolCall,
+  getApiProvider,
+  registerFauxProvider,
+} from "@earendil-works/pi-ai";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
@@ -817,6 +824,27 @@ describe("pi-thoughtcode", () => {
     }
   });
 
+  it("fails the VIBECALL when @model requests an unavailable model", async () => {
+    const cwd = await mkdtemp(join(SCRATCH_DIR, "thoughtcode-cwd-"));
+    await writeFile(
+      join(cwd, "program.txt"),
+      ['@model("does-not-exist")', "VIBEFUNCTION fac(n: number)", "    VIBERETURN(n)", ""].join("\n"),
+    );
+
+    const [vibeCall] = createThoughtcodeTools();
+    const result = await vibeCall.execute(
+      "call-1",
+      { program_file_path: "./program.txt", name: "fac", args: "n=2" },
+      undefined,
+      undefined,
+      { cwd, model: {}, modelRegistry: { getAll: () => [] } } as never,
+    );
+
+    expect(result.details.status).toBe("error");
+    expect(result.content[0]).toMatchObject({ text: expect.stringContaining("does-not-exist") });
+    expect(result.content[0]).toMatchObject({ text: expect.stringContaining("not available") });
+  });
+
   it("maps a callee VIBETHROW to a VIBECALL 'threw' error result", async () => {
     const [vibeCall] = createThoughtcodeTools({
       async runSubagent() {
@@ -918,5 +946,216 @@ describe("pi-thoughtcode", () => {
     } finally {
       faux.unregister();
     }
+  });
+});
+
+describe("decorator enforcement (runtime side-effects)", () => {
+  interface FauxSetup {
+    faux: ReturnType<typeof registerFauxProvider>;
+    modelRegistry: ModelRegistry;
+  }
+
+  function setupFaux(
+    id: string,
+    modelIds: string[],
+    options: { tokensPerSecond?: number; reasoning?: boolean } = {},
+  ): FauxSetup {
+    const models = modelIds.map((modelId) => ({ id: modelId }));
+    const faux = registerFauxProvider({
+      api: `${id}-api`,
+      provider: id,
+      models,
+      tokensPerSecond: options.tokensPerSecond,
+    });
+    const authStorage = AuthStorage.inMemory();
+    authStorage.setRuntimeApiKey(id, "test-key");
+    const modelRegistry = ModelRegistry.inMemory(authStorage);
+    const streamSimple = getApiProvider(faux.api)?.streamSimple;
+    if (!streamSimple) throw new Error("Faux provider did not register a stream.");
+    modelRegistry.registerProvider(id, {
+      api: faux.api,
+      apiKey: "test-key",
+      baseUrl: "http://localhost:0",
+      streamSimple,
+      models: modelIds.map((modelId) => ({
+        id: modelId,
+        name: modelId,
+        reasoning: options.reasoning ?? false,
+        input: ["text", "image"],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: 128000,
+        maxTokens: 16384,
+      })),
+    });
+    return { faux, modelRegistry };
+  }
+
+  async function writeProgram(contents: string): Promise<string> {
+    const cwd = await mkdtemp(join(SCRATCH_DIR, "thoughtcode-cwd-"));
+    await writeFile(join(cwd, "program.txt"), contents);
+    return cwd;
+  }
+
+  // The faux provider hard-codes cost: 0. Wrap its stream to stamp a fixed total cost on every
+  // message-bearing event so @budget can actually be tripped.
+  function withCost(base: NonNullable<ReturnType<typeof getApiProvider>>["streamSimple"], total: number) {
+    return (model: never, context: never, options: never) => {
+      const inner = base(model, context, options);
+      const out = createAssistantMessageEventStream();
+      void (async () => {
+        for await (const event of inner) {
+          const message =
+            event.type === "done" ? event.message : event.type === "error" ? event.error : event.partial;
+          if (message?.usage) {
+            message.usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total } };
+          }
+          out.push(event);
+        }
+      })();
+      return out;
+    };
+  }
+
+  it("@model runs the decorated model instead of the parent's", async () => {
+    const { faux, modelRegistry } = setupFaux("tc-modelpick", ["tc-modelpick-A", "tc-modelpick-B"]);
+    const cwd = await writeProgram(['@model("tc-modelpick-B")', "VIBEFUNCTION fac(n: number)", "    VIBERETURN(n)", ""].join("\n"));
+    const parentModel = modelRegistry.find("tc-modelpick", "tc-modelpick-A");
+    let usedModel: string | undefined;
+    faux.setResponses([
+      (_context, _options, _state, model) => {
+        usedModel = model.id;
+        return fauxAssistantMessage(fauxToolCall(VIBE_RETURN_TOOL_NAME, { value: "7" }), { stopReason: "toolUse" });
+      },
+    ]);
+
+    try {
+      const [vibeCall] = createThoughtcodeTools();
+      const result = await vibeCall.execute(
+        "call-1",
+        { program_file_path: "./program.txt", name: "fac", args: "n=7" },
+        undefined,
+        undefined,
+        { cwd, model: parentModel, modelRegistry } as never,
+      );
+      expect(usedModel).toBe("tc-modelpick-B");
+      expect(result.content).toEqual([{ type: "text", text: "7" }]);
+    } finally {
+      faux.unregister();
+    }
+  });
+
+  it("@thinking sets the subagent reasoning level", async () => {
+    const { faux, modelRegistry } = setupFaux("tc-think", ["tc-think-model"], { reasoning: true });
+    const cwd = await writeProgram(['@thinking("high")', "VIBEFUNCTION fac(n: number)", "    VIBERETURN(n)", ""].join("\n"));
+    const model = modelRegistry.find("tc-think", "tc-think-model");
+    let reasoning: unknown;
+    faux.setResponses([
+      (_context, options) => {
+        reasoning = (options as { reasoning?: unknown } | undefined)?.reasoning;
+        return fauxAssistantMessage(fauxToolCall(VIBE_RETURN_TOOL_NAME, { value: "1" }), { stopReason: "toolUse" });
+      },
+    ]);
+
+    try {
+      const [vibeCall] = createThoughtcodeTools();
+      await vibeCall.execute(
+        "call-1",
+        { program_file_path: "./program.txt", name: "fac", args: "n=1" },
+        undefined,
+        undefined,
+        { cwd, model, modelRegistry } as never,
+      );
+      expect(reasoning).toBe("high");
+    } finally {
+      faux.unregister();
+    }
+  });
+
+  it("@timeout aborts a slow run and surfaces a throw", async () => {
+    const { faux, modelRegistry } = setupFaux("tc-timeout", ["tc-timeout-model"], { tokensPerSecond: 1 });
+    const cwd = await writeProgram(["@timeout(0.2)", "VIBEFUNCTION fac(n: number)", "    VIBERETURN(n)", ""].join("\n"));
+    const model = modelRegistry.find("tc-timeout", "tc-timeout-model");
+    // A long text response streams far slower than the 0.2s timeout (1 token/sec), so the timer fires first.
+    faux.setResponses([fauxAssistantMessage("delay ".repeat(80))]);
+
+    try {
+      const [vibeCall] = createThoughtcodeTools();
+      const result = await vibeCall.execute(
+        "call-1",
+        { program_file_path: "./program.txt", name: "fac", args: "n=1" },
+        undefined,
+        undefined,
+        { cwd, model, modelRegistry } as never,
+      );
+      expect(result.content[0]).toMatchObject({ text: expect.stringContaining("exceeded its 0.2s timeout") });
+      expect(result.details.thrown).toBe(true);
+    } finally {
+      faux.unregister();
+    }
+  });
+
+  it("@budget aborts the run when cost exceeds the limit", async () => {
+    const id = "tc-budget";
+    const faux = registerFauxProvider({ api: `${id}-api`, provider: id, models: [{ id: `${id}-model` }] });
+    const base = getApiProvider(faux.api)?.streamSimple;
+    if (!base) throw new Error("Faux provider did not register a stream.");
+    const authStorage = AuthStorage.inMemory();
+    authStorage.setRuntimeApiKey(id, "test-key");
+    const modelRegistry = ModelRegistry.inMemory(authStorage);
+    modelRegistry.registerProvider(id, {
+      api: faux.api,
+      apiKey: "test-key",
+      baseUrl: "http://localhost:0",
+      streamSimple: withCost(base, 5) as never,
+      models: [
+        {
+          id: `${id}-model`,
+          name: `${id}-model`,
+          reasoning: false,
+          input: ["text", "image"],
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+          contextWindow: 128000,
+          maxTokens: 16384,
+        },
+      ],
+    });
+    const model = modelRegistry.find(id, `${id}-model`);
+    const cwd = await writeProgram(["@budget(0.01)", "VIBEFUNCTION fac(n: number)", "    VIBERETURN(n)", ""].join("\n"));
+    faux.setResponses([fauxAssistantMessage(fauxToolCall(VIBE_RETURN_TOOL_NAME, { value: "1" }), { stopReason: "toolUse" })]);
+
+    try {
+      const [vibeCall] = createThoughtcodeTools();
+      const result = await vibeCall.execute(
+        "call-1",
+        { program_file_path: "./program.txt", name: "fac", args: "n=1" },
+        undefined,
+        undefined,
+        { cwd, model, modelRegistry } as never,
+      );
+      expect(result.content[0]).toMatchObject({ text: expect.stringContaining("exceeded its $0.01 cost budget") });
+      expect(result.details.thrown).toBe(true);
+    } finally {
+      faux.unregister();
+    }
+  });
+
+  it("@budget sums the whole subtree into the cost the check reads", () => {
+    // Faux always reports $0 cost, so a true budget-abort can't be driven end-to-end here. Instead pin
+    // the invariant that nested VIBECALL cost folds into progress.usage.cost — the field @budget reads —
+    // delta-based and recursively (each level's usage is already cumulative).
+    const record = { progress: { usage: undefined }, nestedUsageByRunId: new Map() } as never as Parameters<
+      typeof addNestedVibeCallUsage
+    >[0];
+    const childDetails = (cost: number) =>
+      ({
+        runId: "child-1",
+        progress: { usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, cost } },
+      }) as never;
+
+    addNestedVibeCallUsage(record, childDetails(5));
+    expect(record.progress.usage?.cost).toBe(5);
+    // child's cumulative cost grows to 8 (e.g. it made its own nested call) → only the +3 delta folds in.
+    addNestedVibeCallUsage(record, childDetails(8));
+    expect(record.progress.usage?.cost).toBe(8);
   });
 });

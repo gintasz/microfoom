@@ -5,6 +5,13 @@ import { createVibeReturnTool } from "./vibe-return.js";
 import { createVibeThrowTool } from "./vibe-throw.js";
 
 export {
+  buildVibeRunConfig,
+  resolveDecorators,
+  DECORATOR_REGISTRY,
+  type ResolvedDecorators,
+  type VibeRunConfig,
+} from "./decorators.js";
+export {
   checkReturnValue,
   isParsableReturnType,
   resolveReturnType,

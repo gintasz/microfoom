@@ -1,7 +1,14 @@
 import { type } from "arktype";
 import { readFile } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
-import { extractReturnType, hasVibeFunction, listVibeFunctionReturnTypes } from "thoughtcode-core";
+import {
+  extractReturnType,
+  hasVibeFunction,
+  listVibeFunctionNames,
+  listVibeFunctionReturnTypes,
+  parseDecoratorsForFunction,
+} from "thoughtcode-core";
+import { buildVibeRunConfig } from "./decorators.js";
 
 export type ReturnTypeCheck = { ok: true } | { ok: false; message: string };
 
@@ -67,6 +74,15 @@ export function validateProgramSyntax(programText: string): ProgramSyntaxCheck {
         `VIBEFUNCTION \`${name}\` declares an unrecognized return type \`${returnType}\`. ` +
           `Use a valid ArkType expression — e.g. number, number.integer, string, boolean, "number > 0", or '"ok" | "fail"'.`,
       );
+    }
+  }
+  for (const name of listVibeFunctionNames(programText)) {
+    const parsed = parseDecoratorsForFunction(programText, name);
+    for (const error of parsed.errors) {
+      errors.push(`VIBEFUNCTION \`${name}\`: ${error}`);
+    }
+    for (const error of buildVibeRunConfig(parsed.decorators).errors) {
+      errors.push(`VIBEFUNCTION \`${name}\`: ${error}`);
     }
   }
   return errors.length > 0 ? { ok: false, errors } : { ok: true };
