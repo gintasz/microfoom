@@ -1,5 +1,6 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { sanitizeForDisplay } from "../shared/display.js";
 import type { VibeCallTranscriptItem } from "../types.js";
 
 const transcriptLabels: Record<VibeCallTranscriptItem["role"], string> = {
@@ -24,7 +25,7 @@ export function appendTranscriptLines(
 
   for (const item of transcript) {
     lines.push(theme.fg("accent", transcriptLabels[item.role]));
-    for (const line of item.text.split("\n")) {
+    for (const line of sanitizeForDisplay(item.text).split("\n")) {
       if (width === undefined) {
         lines.push(`  ${line}`);
       } else {

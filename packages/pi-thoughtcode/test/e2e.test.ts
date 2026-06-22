@@ -3,10 +3,14 @@
  * thoughtcode extension, prompts it to execute a VIBEFUNCTION, and asserts on the structured debug log
  * + captured tool results — never on LLM wording.
  *
- * Real-model runs are non-deterministic (the model occasionally interprets a function inline instead
- * of delegating via VIBECALL). This is the end-to-end smoke layer; the deterministic guarantees for
- * the type system live in return-type.test.ts. One execution per scenario — retrying hammers the
- * provider's rate limit and makes things worse. Skips when the test model has no configured auth.
+ * This is the end-to-end smoke layer; the deterministic guarantees for the type system live in
+ * return-type.test.ts and extension.test.ts (faux provider). One execution per scenario.
+ *
+ * A scenario is SKIPPED (not failed) when the run hit a transport/provider error — empirically the
+ * dominant failure mode here is "Connection error." talking to the provider, which the model SDK
+ * already retries with backoff. A connection drop is an infra event, not a code regression, so we
+ * refuse to turn it red. Red here means the model genuinely produced the wrong behavior. Also skips
+ * when the test model has no configured auth.
  */
 import { beforeAll, describe, expect, it } from "vitest";
 import { createThoughtcodeHarness, hasModelAuth, type LogEntry, type ThoughtcodeHarness } from "./harness.js";
@@ -57,6 +61,10 @@ const WRONG_RETURN = [
   "",
 ].join("\n");
 
+function skipOnTransportError(ctx: { skip: (note?: string) => void }, h: ThoughtcodeHarness): void {
+  if (h.hadTransportError()) ctx.skip("provider/transport error (e.g. Connection error) — infra, not a regression");
+}
+
 const returnsInLog = (log: LogEntry[]): LogEntry[] => log.filter((e) => e.kind === "return");
 const vibeReturnTypeErrors = (log: LogEntry[]): LogEntry[] =>
   log.filter((e) => e.kind === "tool.end" && e.toolName === "VIBERETURN" && e.isError === true);
@@ -77,15 +85,18 @@ describeLive("thoughtcode e2e: typed recursion (happy path)", () => {
     log = await h.readLog();
   }, LLM_TIMEOUT);
 
-  it("delegates the nested call via the VIBECALL tool", () => {
+  it("delegates the nested call via the VIBECALL tool", (ctx) => {
+    skipOnTransportError(ctx, h);
     expect(h.toolCalls).toContain("VIBECALL");
   });
 
-  it("spawns at least one nested subagent run", () => {
+  it("spawns at least one nested subagent run", (ctx) => {
+    skipOnTransportError(ctx, h);
     expect(log.some((e) => e.kind === "run.start" && e.depth === 2)).toBe(true);
   });
 
-  it("produces integer returns with no type rejections", () => {
+  it("produces integer returns with no type rejections", (ctx) => {
+    skipOnTransportError(ctx, h);
     expect(vibeReturnTypeErrors(log)).toHaveLength(0);
     const values = returnsInLog(log).map((e) => String(e.value));
     expect(values.length).toBeGreaterThan(0);
@@ -100,7 +111,8 @@ describeLive("thoughtcode e2e: unrecognized return type fails loudly", () => {
     h = await runProgram("bogus.txt", BOGUS_TYPE, "main");
   }, LLM_TIMEOUT);
 
-  it("surfaces a VIBECALL error naming the unrecognized type", () => {
+  it("surfaces a VIBECALL error naming the unrecognized type", (ctx) => {
+    skipOnTransportError(ctx, h);
     const failed = h.toolResults.filter((r) => r.toolName === "VIBECALL" && /unrecognized return type/i.test(r.text));
     expect(failed.length).toBeGreaterThan(0);
     expect(failed.some((r) => r.text.includes("intfaketype"))).toBe(true);
@@ -116,7 +128,8 @@ describeLive("thoughtcode e2e: wrong-typed return is rejected", () => {
     log = await h.readLog();
   }, LLM_TIMEOUT);
 
-  it("rejects the string return against the declared int type", () => {
+  it("rejects the string return against the declared int type", (ctx) => {
+    skipOnTransportError(ctx, h);
     const errors = vibeReturnTypeErrors(log);
     expect(errors.length).toBeGreaterThan(0);
     expect(errors.some((e) => /must be a number|must be an integer/i.test(String(e.result)))).toBe(true);

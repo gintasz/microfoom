@@ -16,6 +16,7 @@ import {
   VIBE_RETURN_TOOL_NAME,
   appendThoughtcodeSystemPrompt,
   buildCannotSpawnThoughtcodeSubagentMessage,
+  buildVibeFunctionNotFoundMessage,
 } from "thoughtcode-core";
 import {
   appendTranscriptFromAssistantMessage,
@@ -53,6 +54,11 @@ export async function runThoughtcodeSubagent(request: VibeSubagentRunRequest): P
   let returnedValue: string | undefined;
   let subagentError: string | undefined;
   const resolvedReturnType = await resolveReturnType(request.call.program_file_path, request.call.name, ctx.cwd);
+  if (resolvedReturnType.status === "not-found") {
+    // Calling a function that the program does not declare is a program bug; fail loudly instead of
+    // spawning a subagent that would flail looking for code that isn't there.
+    throw new Error(buildVibeFunctionNotFoundMessage(request.call.name, request.call.program_file_path));
+  }
   if (resolvedReturnType.status === "invalid") {
     // A declared-but-unrecognized return type is a program bug; fail the VIBECALL loudly rather than
     // silently running without type checking.

@@ -9,7 +9,9 @@
   "scripts": {
     "build": "tsc -b",
     "clean": "tsc -b --clean",
-    "test": "npm run build && vitest run",
+    "test": "npm run build && vitest run --exclude '**/e2e.test.ts'",
+    "test:e2e": "npm run build && vitest run e2e.test",
+    "test:all": "npm run build && vitest run",
     "typecheck": "tsc -b --pretty false"
   },
   "devDependencies": {

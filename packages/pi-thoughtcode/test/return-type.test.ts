@@ -50,6 +50,17 @@ describe("resolveReturnType (file → extract → validate wiring)", () => {
   it("reports unreadable when the file is missing", async () => {
     expect(await resolveReturnType("/no/such/program.txt", "fac", undefined)).toEqual({ status: "unreadable" });
   });
+
+  it("reports not-found when the function is not declared", async () => {
+    const { file } = await writeProgram(TYPED_PROGRAM);
+    expect(await resolveReturnType(file, "nope", undefined)).toEqual({ status: "not-found" });
+  });
+
+  it("distinguishes a declared-but-untyped function from an absent one", async () => {
+    const { file } = await writeProgram(TYPED_PROGRAM);
+    expect(await resolveReturnType(file, "main", undefined)).toEqual({ status: "none" });
+    expect(await resolveReturnType(file, "main2", undefined)).toEqual({ status: "not-found" });
+  });
 });
 
 describe("return-type synonyms", () => {

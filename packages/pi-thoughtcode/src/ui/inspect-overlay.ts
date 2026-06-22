@@ -16,13 +16,14 @@ import {
   formatPathForDisplay,
   labelForStatus,
   markerForProgress,
+  sanitizeForDisplay,
 } from "../shared/display.js";
 import { truncateEnd } from "../shared/truncate.js";
 import type { VibeCallRunRecord } from "../types.js";
 import { appendTranscriptLines } from "./transcript-lines.js";
 
 function padToWidth(value: string, width: number): string {
-  const clipped = truncateToWidth(value.replace(/\t/g, "  "), width, "");
+  const clipped = truncateToWidth(sanitizeForDisplay(value), width, "");
   return `${clipped}${" ".repeat(Math.max(0, width - visibleWidth(clipped)))}`;
 }
 
@@ -150,7 +151,7 @@ export class ThoughtcodeInspectOverlay implements Component {
       th.fg("muted", "Prompt"),
     ];
 
-    for (const line of this.record.prompt.split("\n")) {
+    for (const line of sanitizeForDisplay(this.record.prompt).split("\n")) {
       lines.push(...wrapTextWithAnsi(`  ${line}`, width));
     }
 

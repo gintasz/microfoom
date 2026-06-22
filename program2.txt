@@ -1,8 +1,8 @@
 # ThoughtCode program
 
 VIBEFUNCTION main()
-	res = VIBECALL fac(n = 2)
+	res = VIBECALL fun(n = 2)
 	VIBERETURN(res)
 
-VIBEFUNCTION fac(n: number) -> string
-	VIBERETURN(hello)
+VIBEFUNCTION fun(n: number) -> number.integer
+	VIBERETURN("hello")

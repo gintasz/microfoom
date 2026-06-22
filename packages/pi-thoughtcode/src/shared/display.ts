@@ -102,3 +102,10 @@ export function formatProgressStepForDisplay(step: string, expanded: boolean, cw
 export function formatArgsForDisplay(args: string, maxLength: number): string {
   return args.trim() ? truncateEnd(args, maxLength) : "<empty>";
 }
+
+// Tabs render as 1 cell in visibleWidth() but 8 cells in the terminal, so the host's per-line
+// background fill under-counts and leaves unpainted (white) cells — the "white patch" artifact.
+// Expand tabs to spaces before any width math or wrapping so display width matches reality.
+export function sanitizeForDisplay(value: string): string {
+  return value.replace(/\t/g, "  ");
+}

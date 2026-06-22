@@ -119,6 +119,15 @@ export function extractReturnType(programText: string, functionName: string): st
   return annotation ? annotation : undefined;
 }
 
+/** True if the program declares a `VIBEFUNCTION <name>(...)`, with or without a return-type annotation. */
+export function hasVibeFunction(programText: string, functionName: string): boolean {
+  return new RegExp(`^\\s*VIBEFUNCTION\\s+${escapeRegExp(functionName)}\\s*\\(`, "m").test(programText);
+}
+
+export function buildVibeFunctionNotFoundMessage(functionName: string, programFilePath: string): string {
+  return `VIBEFUNCTION \`${functionName}\` is not defined in ${programFilePath}.`;
+}
+
 export const THOUGHTCODE_VIBE_RETURN_REMINDER_MESSAGE =
   "You ended your turn without calling the VIBERETURN tool. A VIBEFUNCTION must report its result by calling " +
   "VIBERETURN tool as per program instructions. Do not respond in plain text — call the VIBERETURN tool now.";

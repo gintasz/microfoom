@@ -13,6 +13,7 @@ import {
   formatUsage,
   labelForStatus,
   markerForProgress,
+  sanitizeForDisplay,
 } from "../shared/display.js";
 import { truncateEnd } from "../shared/truncate.js";
 import type { VibeCallParams } from "../tools/schema.js";
@@ -90,7 +91,7 @@ function renderVibeCallResultLines(
 
     lines.push("", theme.fg("muted", "Subagent"));
     lines.push(theme.fg("accent", "User"));
-    for (const line of details.prompt.split("\n")) {
+    for (const line of sanitizeForDisplay(details.prompt).split("\n")) {
       for (const segment of wrapTextWithAnsi(line, Math.max(1, width - 2))) {
         lines.push(`  ${segment}`);
       }

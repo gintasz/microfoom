@@ -1,13 +1,14 @@
 import { type } from "arktype";
 import { readFile } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
-import { extractReturnType } from "thoughtcode-core";
+import { extractReturnType, hasVibeFunction } from "thoughtcode-core";
 
 export type ReturnTypeCheck = { ok: true } | { ok: false; message: string };
 
 export type ResolvedReturnType =
   | { status: "none" } // function has no return-type annotation
   | { status: "unreadable" } // program file could not be read
+  | { status: "not-found" } // function is not declared in the program file
   | { status: "ok"; type: string } // valid annotation to enforce
   | { status: "invalid"; annotation: string }; // annotation present but not a recognized type
 
@@ -27,6 +28,9 @@ export async function resolveReturnType(
     text = await readFile(absolute, "utf8");
   } catch {
     return { status: "unreadable" };
+  }
+  if (!hasVibeFunction(text, functionName)) {
+    return { status: "not-found" };
   }
   const annotation = extractReturnType(text, functionName);
   if (!annotation) {

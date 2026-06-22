@@ -7,7 +7,7 @@ import {
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { fauxAssistantMessage, fauxThinking, fauxToolCall, getApiProvider, registerFauxProvider } from "@earendil-works/pi-ai";
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   THOUGHTCODE_MISSING_VIBE_RETURN_MESSAGE,
@@ -729,6 +729,76 @@ describe("pi-thoughtcode", () => {
         expect.objectContaining({ role: "return", text: "outer-result" }),
       ]));
       expect(rendered).toContain(`${VIBE_CALL_TOOL_NAME} id=tc-2 inner x=1`);
+    } finally {
+      faux.unregister();
+    }
+  });
+
+  it("rejects a wrong-typed VIBERETURN against the program's declared type and retries deterministically", async () => {
+    const faux = registerFauxProvider({
+      api: "thoughtcode-typecheck-faux-api",
+      provider: "thoughtcode-typecheck-faux",
+      models: [{ id: "thoughtcode-typecheck-faux-model" }],
+    });
+    const cwd = await mkdtemp(join(SCRATCH_DIR, "thoughtcode-cwd-"));
+    // `fac` declares an integer return; the subagent's VIBERETURN tool is wired to that type via
+    // resolveReturnType, so a non-integer value must be rejected and force a retry — without a real LLM.
+    await writeFile(
+      join(cwd, "program.txt"),
+      ["VIBEFUNCTION main()", "VIBEFUNCTION fac(n: number) -> int", "    VIBERETURN(n)", ""].join("\n"),
+    );
+    const authStorage = AuthStorage.inMemory();
+    authStorage.setRuntimeApiKey("thoughtcode-typecheck-faux", "test-key");
+    const modelRegistry = ModelRegistry.inMemory(authStorage);
+    const streamSimple = getApiProvider(faux.api)?.streamSimple;
+
+    if (!streamSimple) {
+      throw new Error("Faux provider did not register a stream.");
+    }
+
+    modelRegistry.registerProvider("thoughtcode-typecheck-faux", {
+      api: faux.api,
+      apiKey: "test-key",
+      baseUrl: "http://localhost:0",
+      streamSimple,
+      models: [
+        {
+          id: "thoughtcode-typecheck-faux-model",
+          name: "Thoughtcode Typecheck Faux Model",
+          reasoning: false,
+          input: ["text", "image"],
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+          contextWindow: 128000,
+          maxTokens: 16384,
+        },
+      ],
+    });
+    const model = modelRegistry.find("thoughtcode-typecheck-faux", "thoughtcode-typecheck-faux-model");
+
+    if (!model) {
+      throw new Error("Registered faux model was not found.");
+    }
+
+    // First a value that violates the declared int type (rejected → tool error), then a valid one.
+    faux.setResponses([
+      fauxAssistantMessage(fauxToolCall(VIBE_RETURN_TOOL_NAME, { value: "hello" }), { stopReason: "toolUse" }),
+      fauxAssistantMessage(fauxToolCall(VIBE_RETURN_TOOL_NAME, { value: "2" }), { stopReason: "toolUse" }),
+    ]);
+
+    try {
+      const [vibeCall] = createThoughtcodeTools();
+      const result = await vibeCall.execute(
+        "call-1",
+        { program_file_path: "./program.txt", name: "fac", args: "n=2" },
+        undefined,
+        undefined,
+        { cwd, model, modelRegistry } as never,
+      );
+
+      // The wrong-typed return was rejected, so the model had to be invoked a second time.
+      expect(result.content).toEqual([{ type: "text", text: "2" }]);
+      expect(faux.state.callCount).toBe(2);
+      expect(faux.getPendingResponseCount()).toBe(0);
     } finally {
       faux.unregister();
     }
