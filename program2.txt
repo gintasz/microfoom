@@ -5,4 +5,4 @@ VIBEFUNCTION main()
 	VIBERETURN(res)
 
 VIBEFUNCTION fun(n: number) -> number.integer
-	VIBERETURN("hello")
+	VIBERETURN(3)

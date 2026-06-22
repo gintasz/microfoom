@@ -15,6 +15,7 @@ import {
   VIBE_CALL_TOOL_NAME,
   VIBE_LOAD_PROGRAM_TOOL_NAME,
   VIBE_RETURN_TOOL_NAME,
+  VIBE_THROW_TOOL_NAME,
   appendThoughtcodeSystemPrompt,
   buildCannotSpawnThoughtcodeSubagentMessage,
   buildVibeFunctionNotFoundMessage,
@@ -37,6 +38,7 @@ import {
   vibeCallDetailsFromToolResult,
 } from "../runs/index.js";
 import { resolveReturnType } from "./return-type.js";
+import { VibeThrowError } from "./vibe-throw.js";
 import { STEP_MAX_LENGTH } from "../shared/display.js";
 import { getTextContent } from "../shared/tool-result.js";
 import { truncateEnd } from "../shared/truncate.js";
@@ -53,6 +55,7 @@ export async function runThoughtcodeSubagent(request: VibeSubagentRunRequest): P
   }
 
   let returnedValue: string | undefined;
+  let thrownMessage: string | undefined;
   let subagentError: string | undefined;
   const resolvedReturnType = await resolveReturnType(request.call.program_file_path, request.call.name, ctx.cwd);
   if (resolvedReturnType.status === "not-found") {
@@ -76,6 +79,9 @@ export async function runThoughtcodeSubagent(request: VibeSubagentRunRequest): P
     returnType,
     onVibeReturn: (value) => {
       returnedValue = value;
+    },
+    onVibeThrow: (message) => {
+      thrownMessage = message;
     },
   });
   const agentDir = getAgentDir();
@@ -103,7 +109,7 @@ export async function runThoughtcodeSubagent(request: VibeSubagentRunRequest): P
     sessionManager: SessionManager.inMemory(cwd),
     resourceLoader,
     customTools: [...childTools],
-    tools: ["read", VIBE_CALL_TOOL_NAME, VIBE_RETURN_TOOL_NAME, VIBE_LOAD_PROGRAM_TOOL_NAME],
+    tools: ["read", VIBE_CALL_TOOL_NAME, VIBE_RETURN_TOOL_NAME, VIBE_LOAD_PROGRAM_TOOL_NAME, VIBE_THROW_TOOL_NAME],
   });
 
   const unsubscribe = session.subscribe((event) => {
@@ -206,7 +212,10 @@ export async function runThoughtcodeSubagent(request: VibeSubagentRunRequest): P
     // follow-up user message and let it try again, bounded so a stubborn agent can't loop forever.
     for (
       let reminders = 0;
-      returnedValue === undefined && !subagentError && reminders < THOUGHTCODE_MAX_VIBE_RETURN_REMINDERS;
+      returnedValue === undefined &&
+      thrownMessage === undefined &&
+      !subagentError &&
+      reminders < THOUGHTCODE_MAX_VIBE_RETURN_REMINDERS;
       reminders++
     ) {
       if (signal?.aborted) {
@@ -220,6 +229,22 @@ export async function runThoughtcodeSubagent(request: VibeSubagentRunRequest): P
         expandPromptTemplates: false,
         source: "extension",
       });
+    }
+
+    if (thrownMessage !== undefined) {
+      // The VIBEFUNCTION deliberately aborted via VIBETHROW. Surface it as a VibeThrowError so the
+      // VIBECALL boundary reports an intentional program throw, not an infrastructure failure.
+      request.progress.status = "fail";
+      request.progress.endedAt = Date.now();
+      request.progress.step = `throw ${truncateEnd(thrownMessage, STEP_MAX_LENGTH - 6)}`;
+      if (run) {
+        run.status = "error";
+        run.endedAt = request.progress.endedAt;
+        run.error = thrownMessage;
+        appendProgressUpdate(run, request.progress, cwd);
+      }
+      emitVibeCallProgress(request, request.progress, "error");
+      throw new VibeThrowError(thrownMessage);
     }
 
     if (returnedValue === undefined) {

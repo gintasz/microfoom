@@ -2,6 +2,7 @@ import type { ThoughtcodeToolOptions } from "../types.js";
 import { createVibeCallTool } from "./vibe-call.js";
 import { createVibeLoadProgramTool } from "./vibe-load-program.js";
 import { createVibeReturnTool } from "./vibe-return.js";
+import { createVibeThrowTool } from "./vibe-throw.js";
 
 export {
   checkReturnValue,
@@ -16,7 +17,13 @@ export { runThoughtcodeSubagent } from "./subagent.js";
 export { createVibeCallTool, vibeCallTool } from "./vibe-call.js";
 export { createVibeLoadProgramTool, vibeLoadProgramTool } from "./vibe-load-program.js";
 export { createVibeReturnTool, vibeReturnTool } from "./vibe-return.js";
+export { createVibeThrowTool, vibeThrowTool, VibeThrowError } from "./vibe-throw.js";
 
 export function createThoughtcodeTools(options: ThoughtcodeToolOptions = {}) {
-  return [createVibeCallTool(options), createVibeReturnTool(options), createVibeLoadProgramTool(options)] as const;
+  return [
+    createVibeCallTool(options),
+    createVibeReturnTool(options),
+    createVibeLoadProgramTool(options),
+    createVibeThrowTool(options),
+  ] as const;
 }

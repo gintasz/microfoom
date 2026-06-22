@@ -26,7 +26,7 @@ export function createVibeCallDetails(
   progress: VibeCallProgress | undefined,
   events: VibeCallDetails["events"] | undefined,
   transcript: VibeCallDetails["transcript"] | undefined,
-  extra: Pick<VibeCallDetails, "result" | "error"> = {},
+  extra: Pick<VibeCallDetails, "result" | "error" | "thrown"> = {},
 ): VibeCallDetails {
   return {
     kind: "vibecall",

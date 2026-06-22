@@ -1,5 +1,5 @@
 import type { AgentSessionEvent, ExtensionAPI, ExtensionFactory } from "@earendil-works/pi-coding-agent";
-import { VIBE_CALL_TOOL_NAME, VIBE_RETURN_TOOL_NAME, appendThoughtcodeSystemPrompt } from "thoughtcode-core";
+import { VIBE_CALL_TOOL_NAME, VIBE_RETURN_TOOL_NAME, VIBE_THROW_TOOL_NAME, appendThoughtcodeSystemPrompt } from "thoughtcode-core";
 import {
   MAIN_RUN_ID,
   listVibeCallRuns,
@@ -15,6 +15,7 @@ const thoughtcodeExtension: ExtensionFactory = (pi: ExtensionAPI) => {
   // it spawns, so the whole nested run lands in a single debug-log file.
   const traceId = `${MAIN_RUN_ID}-${Date.now()}`;
   let calledVibeReturn = false;
+  let calledVibeThrow = false;
 
   for (const tool of createThoughtcodeTools({ traceId, parentRunId: MAIN_RUN_ID })) {
     pi.registerTool(tool);
@@ -25,6 +26,7 @@ const thoughtcodeExtension: ExtensionFactory = (pi: ExtensionAPI) => {
 
   pi.on("agent_start", (_event, ctx) => {
     calledVibeReturn = false;
+    calledVibeThrow = false;
     logTopLevelStart(traceId, ctx.cwd);
   });
   pi.on("message_end", (event, ctx) => {
@@ -37,10 +39,13 @@ const thoughtcodeExtension: ExtensionFactory = (pi: ExtensionAPI) => {
     if (event.toolName === VIBE_RETURN_TOOL_NAME && !event.isError) {
       calledVibeReturn = true;
     }
+    if (event.toolName === VIBE_THROW_TOOL_NAME && !event.isError) {
+      calledVibeThrow = true;
+    }
     logTopLevelEvent(traceId, ctx.cwd, event as unknown as AgentSessionEvent);
   });
   pi.on("agent_end", (_event, ctx) => {
-    logTopLevelEnd(traceId, ctx.cwd, calledVibeReturn);
+    logTopLevelEnd(traceId, ctx.cwd, calledVibeReturn, calledVibeThrow);
   });
   pi.registerCommand("thoughtcode-inspect", {
     description: `Inspect a live or recent Thoughtcode ${VIBE_CALL_TOOL_NAME} run. Usage: /thoughtcode-inspect <runId|latest>`,

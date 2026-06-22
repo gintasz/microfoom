@@ -176,11 +176,18 @@ export function logTopLevelStart(traceId: string, cwd: string | undefined): void
  * Log the end of a top-level turn. If the turn produced no VIBERETURN tool call, flag it — that is
  * the "agent answered in plain text instead of calling VIBERETURN" failure, otherwise invisible.
  */
-export function logTopLevelEnd(traceId: string, cwd: string | undefined, calledVibeReturn: boolean): void {
+export function logTopLevelEnd(
+  traceId: string,
+  cwd: string | undefined,
+  calledVibeReturn: boolean,
+  calledVibeThrow = false,
+): void {
+  const status = calledVibeReturn ? "done" : calledVibeThrow ? "error" : "warn";
   write(mainContext(traceId, cwd), {
     kind: "run.end",
-    status: calledVibeReturn ? "done" : "warn",
-    ...(calledVibeReturn ? {} : { warning: "turn ended without calling VIBERETURN" }),
+    status,
+    ...(calledVibeThrow ? { thrown: true } : {}),
+    ...(status === "warn" ? { warning: "turn ended without calling VIBERETURN or VIBETHROW" } : {}),
   });
 }
 

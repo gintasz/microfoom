@@ -18,6 +18,7 @@ import {
   VIBE_LOAD_PROGRAM_TOOL_NAME,
   VIBE_RETURN_TOOL_NAME,
   VIBE_RETURN_TOOL_PARAMETERS,
+  VIBE_THROW_TOOL_NAME,
   buildVibeCallSubagentPrompt,
   type VibeCallArgs,
 } from "thoughtcode-core";
@@ -30,6 +31,7 @@ import thoughtcodeExtension, {
   inspectThoughtcodeRun,
   type VibeCallDetails,
   type VibeCallRunRecord,
+  VibeThrowError,
   vibeCallTool,
   vibeReturnTool,
 } from "../dist/index.js";
@@ -86,7 +88,12 @@ describe("pi-thoughtcode", () => {
   it("exports the two Thoughtcode placeholder tools", () => {
     const tools = createThoughtcodeTools();
 
-    expect(tools.map((tool) => tool.name)).toEqual([VIBE_CALL_TOOL_NAME, VIBE_RETURN_TOOL_NAME, VIBE_LOAD_PROGRAM_TOOL_NAME]);
+    expect(tools.map((tool) => tool.name)).toEqual([
+      VIBE_CALL_TOOL_NAME,
+      VIBE_RETURN_TOOL_NAME,
+      VIBE_LOAD_PROGRAM_TOOL_NAME,
+      VIBE_THROW_TOOL_NAME,
+    ]);
     expect(vibeCallTool.parameters.required).toEqual(VIBE_CALL_TOOL_PARAMETERS.map((parameter) => parameter.name));
     expect(vibeReturnTool.parameters.required).toEqual(VIBE_RETURN_TOOL_PARAMETERS.map((parameter) => parameter.name));
     for (const parameter of VIBE_CALL_TOOL_PARAMETERS) {
@@ -120,6 +127,7 @@ describe("pi-thoughtcode", () => {
       VIBE_CALL_TOOL_NAME,
       VIBE_RETURN_TOOL_NAME,
       VIBE_LOAD_PROGRAM_TOOL_NAME,
+      VIBE_THROW_TOOL_NAME,
     ]);
     expect(commands).toEqual(["thoughtcode-inspect"]);
     expect(beforeAgentStart?.({ systemPrompt: "Base prompt" }).systemPrompt).toBe(
@@ -804,6 +812,109 @@ describe("pi-thoughtcode", () => {
       expect(result.content).toEqual([{ type: "text", text: "2" }]);
       expect(faux.state.callCount).toBe(2);
       expect(faux.getPendingResponseCount()).toBe(0);
+    } finally {
+      faux.unregister();
+    }
+  });
+
+  it("maps a callee VIBETHROW to a VIBECALL 'threw' error result", async () => {
+    const [vibeCall] = createThoughtcodeTools({
+      async runSubagent() {
+        throw new VibeThrowError("PROGRAM ERROR: contradictory instructions");
+      },
+    });
+    const result = await vibeCall.execute(
+      "call-1",
+      { program_file_path: "./program.txt", name: "fac", args: "" },
+      undefined,
+      undefined,
+      { cwd: SCRATCH_DIR } as never,
+    );
+
+    expect(result.content).toEqual([{ type: "text", text: "VIBECALL threw: PROGRAM ERROR: contradictory instructions" }]);
+    expect(result.details.status).toBe("error");
+    expect(result.details.thrown).toBe(true);
+  });
+
+  it("does not mark an infrastructure failure as thrown", async () => {
+    const [vibeCall] = createThoughtcodeTools({
+      async runSubagent() {
+        throw new Error("Connection error.");
+      },
+    });
+    const result = await vibeCall.execute(
+      "call-1",
+      { program_file_path: "./program.txt", name: "fac", args: "" },
+      undefined,
+      undefined,
+      { cwd: SCRATCH_DIR } as never,
+    );
+
+    expect(result.content).toEqual([{ type: "text", text: "VIBECALL error: Connection error." }]);
+    expect(result.details.thrown).toBeUndefined();
+  });
+
+  it("captures a subagent VIBETHROW and surfaces it through the VIBECALL boundary", async () => {
+    const faux = registerFauxProvider({
+      api: "thoughtcode-throw-faux-api",
+      provider: "thoughtcode-throw-faux",
+      models: [{ id: "thoughtcode-throw-faux-model" }],
+    });
+    const cwd = await mkdtemp(join(SCRATCH_DIR, "thoughtcode-cwd-"));
+    await writeFile(
+      join(cwd, "program.txt"),
+      ["VIBEFUNCTION main()", "VIBEFUNCTION fac(n: number)", "    VIBERETURN(n)", ""].join("\n"),
+    );
+    const authStorage = AuthStorage.inMemory();
+    authStorage.setRuntimeApiKey("thoughtcode-throw-faux", "test-key");
+    const modelRegistry = ModelRegistry.inMemory(authStorage);
+    const streamSimple = getApiProvider(faux.api)?.streamSimple;
+
+    if (!streamSimple) {
+      throw new Error("Faux provider did not register a stream.");
+    }
+
+    modelRegistry.registerProvider("thoughtcode-throw-faux", {
+      api: faux.api,
+      apiKey: "test-key",
+      baseUrl: "http://localhost:0",
+      streamSimple,
+      models: [
+        {
+          id: "thoughtcode-throw-faux-model",
+          name: "Thoughtcode Throw Faux Model",
+          reasoning: false,
+          input: ["text", "image"],
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+          contextWindow: 128000,
+          maxTokens: 16384,
+        },
+      ],
+    });
+    const model = modelRegistry.find("thoughtcode-throw-faux", "thoughtcode-throw-faux-model");
+
+    if (!model) {
+      throw new Error("Registered faux model was not found.");
+    }
+
+    faux.setResponses([
+      fauxAssistantMessage(fauxToolCall(VIBE_THROW_TOOL_NAME, { message: "RUNTIME ERROR: cannot reach service" }), {
+        stopReason: "toolUse",
+      }),
+    ]);
+
+    try {
+      const [vibeCall] = createThoughtcodeTools();
+      const result = await vibeCall.execute(
+        "call-1",
+        { program_file_path: "./program.txt", name: "fac", args: "n=2" },
+        undefined,
+        undefined,
+        { cwd, model, modelRegistry } as never,
+      );
+
+      expect(result.content).toEqual([{ type: "text", text: "VIBECALL threw: RUNTIME ERROR: cannot reach service" }]);
+      expect(result.details.thrown).toBe(true);
     } finally {
       faux.unregister();
     }

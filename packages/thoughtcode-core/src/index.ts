@@ -1,6 +1,7 @@
 export const VIBE_CALL_TOOL_NAME = "VIBECALL";
 export const VIBE_RETURN_TOOL_NAME = "VIBERETURN";
 export const VIBE_LOAD_PROGRAM_TOOL_NAME = "VIBELOADPROGRAM";
+export const VIBE_THROW_TOOL_NAME = "VIBETHROW";
 
 export interface VibeCallArgs {
   program_file_path: string;
@@ -10,6 +11,10 @@ export interface VibeCallArgs {
 
 export interface VibeReturnArgs {
   value: string;
+}
+
+export interface VibeThrowArgs {
+  message: string;
 }
 
 export interface ThoughtcodeToolDescription {
@@ -66,6 +71,17 @@ export const VIBE_LOAD_PROGRAM_TOOL_PARAMETERS = [
   },
 ] as const satisfies readonly ThoughtcodeToolParameter[];
 
+export const VIBE_THROW_TOOL_PARAMETERS = [
+  {
+    name: "message",
+    type: "string",
+    description:
+      "Explanation of what went wrong and why execution cannot continue. State whether it is a program error " +
+      "(the ThoughtCode code is faulty) or a runtime error (a step genuinely cannot be completed).",
+    required: true,
+  },
+] as const satisfies readonly ThoughtcodeToolParameter[];
+
 export const VIBE_CALL_TOOL_DESCRIPTION: ThoughtcodeToolDescription = {
   name: VIBE_CALL_TOOL_NAME,
   label: "VIBECALL",
@@ -102,10 +118,25 @@ export const VIBE_LOAD_PROGRAM_TOOL_DESCRIPTION: ThoughtcodeToolDescription = {
   ],
 };
 
+export const VIBE_THROW_TOOL_DESCRIPTION: ThoughtcodeToolDescription = {
+  name: VIBE_THROW_TOOL_NAME,
+  label: "VIBETHROW",
+  description:
+    "End the current VIBEFUNCTION with an error instead of a value. Use when the ThoughtCode program is faulty " +
+    "or the task genuinely cannot be completed. Takes a message explaining what went wrong. Last resort — prefer " +
+    "VIBERETURN whenever a correct value can be produced.",
+  promptSnippet:
+    "Use this tool to abort a VIBEFUNCTION with an error when no correct VIBERETURN value can be produced",
+  promptGuidelines: [
+    "Call VIBETHROW only as a last resort: when the program's instructions are faulty/contradictory/impossible, or a required step genuinely cannot be completed. Never use it to avoid effort, to skip an ambiguous-but-resolvable step, or in place of VIBERETURN for a valid-but-undesirable result.",
+  ],
+};
+
 export const THOUGHTCODE_TOOL_DESCRIPTIONS = [
   VIBE_CALL_TOOL_DESCRIPTION,
   VIBE_RETURN_TOOL_DESCRIPTION,
   VIBE_LOAD_PROGRAM_TOOL_DESCRIPTION,
+  VIBE_THROW_TOOL_DESCRIPTION,
 ] as const;
 
 export const THOUGHTCODE_SYSTEM_PROMPT = [
@@ -117,6 +148,8 @@ export const THOUGHTCODE_SYSTEM_PROMPT = [
   "3. When execution reaches `VIBERETURN(<value>)`, you MUST report the result by calling the VIBERETURN tool with that value. Never write the return value as a plain-text reply — a value is only returned by calling the VIBERETURN tool.",
   "4. Never assume the result of a VIBECALL. The called VIBEFUNCTION runs independently — it may interpret differently, recurse, or have been changed — so its return value is not knowable in advance. Call it to learn the value, even when you believe you can predict it. You are interpreting, not solving.",
   "5. A VIBECALL is isolated: the callee cannot see your variables and you cannot see its. The only things crossing the boundary are the args you pass in and the single value it returns. Each invocation, including each recursive one, has its own fresh variables.",
+  "6. Every VIBEFUNCTION ends exactly one way: VIBERETURN a value, or VIBETHROW an error — never both, never neither. End by calling the VIBETHROW tool when execution reaches an explicit `VIBETHROW(<message>)` statement, OR when no correct value can be produced: the program is faulty (contradictory/impossible/undefined references) or a required step genuinely cannot be completed. Do NOT VIBETHROW to avoid effort, to skip an ambiguous-but-resolvable step, or instead of returning a valid-but-undesirable result (e.g. \"not found\" is a normal VIBERETURN, not a throw). When in doubt, interpret reasonably and VIBERETURN.",
+  "7. A VIBECALL whose callee throws surfaces to you as a failed tool result. Handle it as the program directs (e.g. a fallback); otherwise VIBETHROW to propagate the failure to your own caller.",
   "<!-- thoughtcode:end -->",
 ].join("\n");
 
@@ -181,12 +214,22 @@ export function buildVibeProgramSyntaxErrorMessage(programFilePath: string, erro
 }
 
 export const THOUGHTCODE_VIBE_RETURN_REMINDER_MESSAGE =
-  "You ended your turn without calling the VIBERETURN tool. A VIBEFUNCTION must report its result by calling " +
-  "VIBERETURN tool as per program instructions. Do not respond in plain text — call the VIBERETURN tool now.";
+  "You ended your turn without finishing the VIBEFUNCTION. A VIBEFUNCTION must end by calling the VIBERETURN tool " +
+  "with its result, or — only if no correct value can be produced — the VIBETHROW tool with an error message. " +
+  "Do not respond in plain text — call VIBERETURN (or VIBETHROW) now.";
 export const THOUGHTCODE_MAX_VIBE_RETURN_REMINDERS = 3;
 
 export function buildVibeCallFailureMessage(status: string, message: string): string {
   return `${VIBE_CALL_TOOL_NAME} ${status}: ${message}`;
+}
+
+/**
+ * Failure message for a VIBECALL whose callee deliberately VIBETHREW. Distinct from
+ * buildVibeCallFailureMessage so the caller (and logs) can tell an intentional program throw apart
+ * from an infrastructure failure (no model, transport error, crash).
+ */
+export function buildVibeCallThrewMessage(message: string): string {
+  return `${VIBE_CALL_TOOL_NAME} threw: ${message}`;
 }
 
 export function buildCannotSpawnThoughtcodeSubagentMessage(reason: string): string {

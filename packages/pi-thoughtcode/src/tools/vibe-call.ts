@@ -3,6 +3,7 @@ import {
   VIBE_CALL_TOOL_DESCRIPTION,
   buildVibeCallFailureMessage,
   buildVibeCallSubagentPrompt,
+  buildVibeCallThrewMessage,
   type VibeCallArgs,
 } from "thoughtcode-core";
 import {
@@ -22,6 +23,7 @@ import type { ThoughtcodeToolOptions, VibeCallDetails } from "../types.js";
 import { renderVibeCallCall, renderVibeCallResult } from "../ui/index.js";
 import { vibeCallParameters, type VibeCallParams } from "./schema.js";
 import { runThoughtcodeSubagent } from "./subagent.js";
+import { VibeThrowError } from "./vibe-throw.js";
 
 export function createVibeCallTool(options: ThoughtcodeToolOptions = {}) {
   const runSubagent = options.runSubagent ?? runThoughtcodeSubagent;
@@ -80,19 +82,23 @@ export function createVibeCallTool(options: ThoughtcodeToolOptions = {}) {
 
         return textResult(value, createVibeCallDetails(runId, call, prompt, "done", depth, progress, run.events, run.transcript, { result: value }));
       } catch (error) {
+        const thrown = error instanceof VibeThrowError;
         const status = signal?.aborted ? "aborted" : "error";
         const message = getErrorMessage(error);
         progress.status = "fail";
         progress.endedAt ??= Date.now();
-        progress.step = `fail ${truncateEnd(message, STEP_MAX_LENGTH - 5)}`;
+        progress.step = `${thrown ? "throw" : "fail"} ${truncateEnd(message, STEP_MAX_LENGTH - 6)}`;
         run.status = status;
         run.endedAt = progress.endedAt;
         run.error = message;
         appendProgressUpdate(run, progress, ctx?.cwd);
         logRunEnd(run, status, message);
         return textResult(
-          buildVibeCallFailureMessage(status, message),
-          createVibeCallDetails(runId, call, prompt, status, depth, progress, run.events, run.transcript, { error: message }),
+          thrown ? buildVibeCallThrewMessage(message) : buildVibeCallFailureMessage(status, message),
+          createVibeCallDetails(runId, call, prompt, status, depth, progress, run.events, run.transcript, {
+            error: message,
+            ...(thrown ? { thrown: true } : {}),
+          }),
         );
       }
     },

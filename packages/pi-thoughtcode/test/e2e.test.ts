@@ -50,6 +50,13 @@ const BOGUS_TYPE = [
   "",
 ].join("\n");
 
+const THROWS = [
+  "# program that aborts via an explicit VIBETHROW",
+  "VIBEFUNCTION main()",
+  '    VIBETHROW("intentional abort for testing")',
+  "",
+].join("\n");
+
 const WRONG_RETURN = [
   "# returns a string where number.integer is declared",
   "VIBEFUNCTION main()",
@@ -68,6 +75,8 @@ function skipOnTransportError(ctx: { skip: (note?: string) => void }, h: Thought
 const returnsInLog = (log: LogEntry[]): LogEntry[] => log.filter((e) => e.kind === "return");
 const vibeReturnTypeErrors = (log: LogEntry[]): LogEntry[] =>
   log.filter((e) => e.kind === "tool.end" && e.toolName === "VIBERETURN" && e.isError === true);
+const vibeThrows = (log: LogEntry[]): LogEntry[] =>
+  log.filter((e) => e.kind === "tool.end" && e.toolName === "VIBETHROW");
 
 async function runProgram(file: string, contents: string, function_name: string): Promise<ThoughtcodeHarness> {
   const h = await createThoughtcodeHarness();
@@ -134,10 +143,31 @@ describeLive("thoughtcode e2e: wrong-typed return is rejected", () => {
     log = await h.readLog();
   }, LLM_TIMEOUT);
 
-  it("rejects the string return against the declared int type", (ctx) => {
+  it("does not silently accept the type-violating return", (ctx) => {
     skipOnTransportError(ctx, h);
-    const errors = vibeReturnTypeErrors(log);
-    expect(errors.length).toBeGreaterThan(0);
-    expect(errors.some((e) => /must be a number|must be an integer/i.test(String(e.result)))).toBe(true);
+    // The program returns a string where number.integer is declared. The interpreter must not accept it
+    // silently: either the VIBERETURN type-check rejects it, or the agent VIBETHROWs (a faulty program).
+    const typeErrors = vibeReturnTypeErrors(log);
+    const throws = vibeThrows(log);
+    expect(typeErrors.length + throws.length).toBeGreaterThan(0);
+    if (typeErrors.length > 0) {
+      expect(typeErrors.some((e) => /must be a number|must be an integer/i.test(String(e.result)))).toBe(true);
+    }
+  });
+});
+
+describeLive("thoughtcode e2e: VIBETHROW aborts execution", () => {
+  let h: ThoughtcodeHarness;
+
+  beforeAll(async () => {
+    h = await runProgram("throw.txt", THROWS, "main");
+  }, LLM_TIMEOUT);
+
+  it("ends the run by calling the VIBETHROW tool", (ctx) => {
+    skipOnTransportError(ctx, h);
+    const threw = h.toolResults.filter((r) => r.toolName === "VIBETHROW");
+    expect(threw.length).toBeGreaterThan(0);
+    // It must NOT also VIBERETURN — a function ends exactly one way.
+    expect(h.toolResults.some((r) => r.toolName === "VIBERETURN")).toBe(false);
   });
 });

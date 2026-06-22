@@ -48,11 +48,18 @@ export interface VibeCallDetails {
   transcript?: VibeCallTranscriptItem[];
   result?: string;
   error?: string;
+  /** True when the failure was a deliberate VIBETHROW by the callee, not an infrastructure error. */
+  thrown?: boolean;
 }
 
 export interface VibeReturnDetails {
   kind: "vibereturn";
   value: string;
+}
+
+export interface VibeThrowDetails {
+  kind: "vibethrow";
+  message: string;
 }
 
 export interface VibeLoadProgramDetails {
@@ -81,6 +88,7 @@ export type VibeSubagentRunner = (request: VibeSubagentRunRequest) => Promise<st
 export interface ThoughtcodeToolOptions {
   runSubagent?: VibeSubagentRunner;
   onVibeReturn?: (value: string) => void;
+  onVibeThrow?: (message: string) => void;
   depth?: number;
   /** Declared return-type annotation of the VIBEFUNCTION this subagent executes, if any. */
   returnType?: string;
