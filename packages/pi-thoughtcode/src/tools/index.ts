@@ -11,11 +11,19 @@ export {
   type ResolvedDecorators,
   type VibeRunConfig,
 } from "./decorators.js";
+export { prepareEntrypoint, type PreparedEntrypoint } from "./entrypoint.js";
+export {
+  bindAndCheckArgs,
+  resolveParams,
+  type ArgBinding,
+  type ResolvedParams,
+} from "./params.js";
 export {
   checkReturnValue,
   isParsableReturnType,
   resolveReturnType,
   validateProgramSyntax,
+  validateValue,
   type ProgramSyntaxCheck,
   type ResolvedReturnType,
   type ReturnTypeCheck,

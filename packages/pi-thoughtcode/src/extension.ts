@@ -1,5 +1,11 @@
 import type { AgentSessionEvent, ExtensionAPI, ExtensionFactory } from "@earendil-works/pi-coding-agent";
-import { VIBE_CALL_TOOL_NAME, VIBE_RETURN_TOOL_NAME, VIBE_THROW_TOOL_NAME, appendThoughtcodeSystemPrompt } from "thoughtcode-core";
+import {
+  VIBE_CALL_TOOL_NAME,
+  VIBE_RETURN_TOOL_NAME,
+  VIBE_THROW_TOOL_NAME,
+  appendThoughtcodeSystemPrompt,
+  buildVibeCallSubagentPrompt,
+} from "thoughtcode-core";
 import {
   MAIN_RUN_ID,
   listVibeCallRuns,
@@ -7,7 +13,7 @@ import {
   logTopLevelEvent,
   logTopLevelStart,
 } from "./runs/index.js";
-import { createThoughtcodeTools } from "./tools/index.js";
+import { createThoughtcodeTools, prepareEntrypoint } from "./tools/index.js";
 import { inspectThoughtcodeRun } from "./ui/index.js";
 
 const thoughtcodeExtension: ExtensionFactory = (pi: ExtensionAPI) => {
@@ -57,6 +63,25 @@ const thoughtcodeExtension: ExtensionFactory = (pi: ExtensionAPI) => {
         .map((id) => ({ label: id, value: id, description: `Thoughtcode ${VIBE_CALL_TOOL_NAME} run` }));
     },
     handler: inspectThoughtcodeRun,
+  });
+  pi.registerCommand("thoughtcode-run", {
+    description:
+      "Run a ThoughtCode program. Usage: /thoughtcode-run <file> <entrypoint> [args]. " +
+      "Args: a bare value for a single-arg function, name=value pairs, or a JSON object.",
+    async handler(args, ctx) {
+      const match = /^(\S+)\s+(\S+)(?:\s+([\s\S]+))?$/.exec(args.trim());
+      if (!match) {
+        ctx.ui.notify("Usage: /thoughtcode-run <file> <entrypoint> [args]", "error");
+        return;
+      }
+      const [, programFilePath, name, rawArgs = ""] = match;
+      const prepared = await prepareEntrypoint(programFilePath, name, rawArgs, ctx.cwd);
+      if (!prepared.ok) {
+        ctx.ui.notify(prepared.error, "error");
+        return;
+      }
+      pi.sendUserMessage(buildVibeCallSubagentPrompt({ program_file_path: programFilePath, name, args: prepared.args }));
+    },
   });
 };
 

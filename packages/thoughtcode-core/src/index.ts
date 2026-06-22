@@ -48,7 +48,10 @@ export const VIBE_CALL_TOOL_PARAMETERS = [
   {
     name: "args",
     type: "string",
-    description: "Serialized arguments to pass to the VIBEFUNCTION.",
+    description:
+      "Arguments for the VIBEFUNCTION as comma-separated name=value pairs with JSON-literal values " +
+      '(strings double-quoted), e.g. `n=2, label="ok"`. Evaluate any expressions to concrete values first. ' +
+      "Pass an empty string when the function takes no arguments.",
     required: true,
   },
 ] as const satisfies readonly ThoughtcodeToolParameter[];
@@ -144,7 +147,7 @@ export const THOUGHTCODE_SYSTEM_PROMPT = [
   "You are an interpreter executing one VIBEFUNCTION of a ThoughtCode program. Follow these rules exactly:",
   "0. Read the ThoughtCode program ONLY with the VIBELOADPROGRAM tool — never with `cat` or the `read` tool. It validates the program's syntax and returns the source. If it reports a syntax error, stop execution immediately and report the error.",
   "1. Interpret the body of the ENTRYPOINT VIBEFUNCTION yourself, statement by statement. Do NOT call the VIBECALL tool for the ENTRYPOINT function itself — you ARE its execution.",
-  "2. When execution reaches a `VIBECALL <function>(<args>)` expression, you MUST obtain its value by calling the VIBECALL tool with that function name and args. Never read, inline, simulate, or compute the called function's body yourself — each VIBECALL runs as a separate call. This applies even when the called function is defined in the same file (including recursive self-calls).",
+  "2. When execution reaches a `VIBECALL <function>(<args>)` expression, you MUST obtain its value by calling the VIBECALL tool with that function name and args. Pass args as comma-separated name=value pairs with JSON-literal values (strings double-quoted), e.g. `n=2, label=\"ok\"`; evaluate any expressions (like `n - 1`) to concrete values first, and pass an empty string when there are no args. Never read, inline, simulate, or compute the called function's body yourself — each VIBECALL runs as a separate call. This applies even when the called function is defined in the same file (including recursive self-calls).",
   "3. When execution reaches `VIBERETURN(<value>)`, you MUST report the result by calling the VIBERETURN tool with that value. Never write the return value as a plain-text reply — a value is only returned by calling the VIBERETURN tool.",
   "4. Never assume the result of a VIBECALL. The called VIBEFUNCTION runs independently — it may interpret differently, recurse, or have been changed — so its return value is not knowable in advance. Call it to learn the value, even when you believe you can predict it. You are interpreting, not solving.",
   "5. A VIBECALL is isolated: the callee cannot see your variables and you cannot see its. The only things crossing the boundary are the args you pass in and the single value it returns. Each invocation, including each recursive one, has its own fresh variables.",
@@ -230,6 +233,35 @@ export interface ParsedDecorator {
 export interface DecoratorParseResult {
   decorators: ParsedDecorator[];
   errors: string[];
+}
+
+/** Index of the first `target` char at bracket/quote depth 0, or -1. */
+function topLevelIndexOf(input: string, target: string): number {
+  let depth = 0;
+  let quote: '"' | "'" | undefined;
+  for (let i = 0; i < input.length; i += 1) {
+    const ch = input[i];
+    if (quote) {
+      if (ch === "\\") {
+        i += 1;
+      } else if (ch === quote) {
+        quote = undefined;
+      }
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      continue;
+    }
+    if (ch === "[" || ch === "{" || ch === "(") {
+      depth += 1;
+    } else if (ch === "]" || ch === "}" || ch === ")") {
+      depth -= 1;
+    } else if (ch === target && depth === 0) {
+      return i;
+    }
+  }
+  return -1;
 }
 
 /** Split on top-level commas only — ignores commas inside strings, [], {}, (). */
@@ -362,6 +394,114 @@ export function parseDecoratorsForFunction(programText: string, functionName: st
     }
   }
   return { decorators, errors };
+}
+
+// ---------------------------------------------------------------------------
+// Parameter declarations (input side of the interface). The param list of a
+// VIBEFUNCTION header — `(name: type = default, ...)` — parsed deterministically.
+// Types are ArkType expressions (validated by the caller); defaults are JSON
+// literals. Mirrors the return-type/decorator approach.
+// ---------------------------------------------------------------------------
+
+export interface ParsedParam {
+  name: string;
+  /** ArkType type expression, or undefined for an untyped param. */
+  type?: string;
+  /** Default value (JSON literal), present only when `hasDefault` is true. */
+  default?: unknown;
+  hasDefault: boolean;
+}
+
+export interface ParamParseResult {
+  params: ParsedParam[];
+  errors: string[];
+}
+
+function parseParam(part: string): ParsedParam | { error: string } {
+  let declaration = part;
+  let defaultRaw: string | undefined;
+  const eqIndex = topLevelIndexOf(part, "=");
+  if (eqIndex >= 0) {
+    declaration = part.slice(0, eqIndex);
+    defaultRaw = part.slice(eqIndex + 1);
+  }
+
+  let name = declaration.trim();
+  let type: string | undefined;
+  const colonIndex = topLevelIndexOf(declaration, ":");
+  if (colonIndex >= 0) {
+    name = declaration.slice(0, colonIndex).trim();
+    type = declaration.slice(colonIndex + 1).trim() || undefined;
+  }
+  if (!/^[A-Za-z_]\w*$/.test(name)) {
+    return { error: `invalid parameter name: ${declaration.trim()}` };
+  }
+
+  if (defaultRaw === undefined) {
+    return { name, type, hasDefault: false };
+  }
+  const parsed = parseLiteral(defaultRaw);
+  if (!parsed.ok) {
+    return { error: `parameter \`${name}\`: default must be a JSON literal (strings double-quoted): ${defaultRaw.trim()}` };
+  }
+  return { name, type, default: parsed.value, hasDefault: true };
+}
+
+/** Parse the declared parameter list of a VIBEFUNCTION from the program header. */
+export function parseVibeFunctionParams(programText: string, functionName: string): ParamParseResult {
+  const pattern = new RegExp(`^\\s*VIBEFUNCTION\\s+${escapeRegExp(functionName)}\\s*\\(([^)]*)\\)`, "m");
+  const match = pattern.exec(programText);
+  if (!match) {
+    return { params: [], errors: [] };
+  }
+  const params: ParsedParam[] = [];
+  const errors: string[] = [];
+  for (const part of splitTopLevelArgs(match[1])) {
+    const parsed = parseParam(part);
+    if ("error" in parsed) {
+      errors.push(parsed.error);
+    } else {
+      params.push(parsed);
+    }
+  }
+  return { params, errors };
+}
+
+export interface CallArgsParseResult {
+  values: Record<string, unknown>;
+  errors: string[];
+}
+
+/** Parse a VIBECALL's serialized args string: named `key=value` with JSON-literal values. */
+export function parseVibeCallArgs(argsString: string): CallArgsParseResult {
+  const values: Record<string, unknown> = {};
+  const errors: string[] = [];
+  for (const part of splitTopLevelArgs(argsString)) {
+    const eqIndex = topLevelIndexOf(part, "=");
+    if (eqIndex < 0) {
+      errors.push(`argument must be \`name=value\` (named arguments only): ${part}`);
+      continue;
+    }
+    const name = part.slice(0, eqIndex).trim();
+    if (!/^[A-Za-z_]\w*$/.test(name)) {
+      errors.push(`invalid argument name: ${name}`);
+      continue;
+    }
+    const parsed = parseLiteral(part.slice(eqIndex + 1));
+    if (!parsed.ok) {
+      errors.push(`argument \`${name}\`: value must be a JSON literal (strings double-quoted): ${part.slice(eqIndex + 1).trim()}`);
+      continue;
+    }
+    values[name] = parsed.value;
+  }
+  return { values, errors };
+}
+
+/** Serialize bound args back to the `name=value` string form for the subagent prompt. */
+export function serializeVibeCallArgs(values: Record<string, unknown>): string {
+  return Object.entries(values)
+    .map(([name, value]) => `${name}=${JSON.stringify(value)}`)
+    .join(", ");
 }
 
 export function buildVibeLoadProgramUnreadableMessage(programFilePath: string): string {

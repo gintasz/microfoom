@@ -7,6 +7,7 @@ import {
   listVibeFunctionNames,
   listVibeFunctionReturnTypes,
   parseDecoratorsForFunction,
+  parseVibeFunctionParams,
 } from "thoughtcode-core";
 import { buildVibeRunConfig } from "./decorators.js";
 
@@ -84,6 +85,15 @@ export function validateProgramSyntax(programText: string): ProgramSyntaxCheck {
     for (const error of buildVibeRunConfig(parsed.decorators).errors) {
       errors.push(`VIBEFUNCTION \`${name}\`: ${error}`);
     }
+    const params = parseVibeFunctionParams(programText, name);
+    for (const error of params.errors) {
+      errors.push(`VIBEFUNCTION \`${name}\`: ${error}`);
+    }
+    for (const param of params.params) {
+      if (param.type && !isParsableReturnType(param.type)) {
+        errors.push(`VIBEFUNCTION \`${name}\`: parameter \`${param.name}\` declares an unrecognized type \`${param.type}\`.`);
+      }
+    }
   }
   return errors.length > 0 ? { ok: false, errors } : { ok: true };
 }
@@ -116,13 +126,21 @@ function toValue(rawValue: string): unknown {
  * treated as "no constraint" (ok) rather than punishing the agent for the program author's mistake.
  */
 export function checkReturnValue(rawValue: string, annotation: string): ReturnTypeCheck {
+  return validateValue(toValue(rawValue), annotation);
+}
+
+/**
+ * Validate an already-decoded value against an ArkType annotation. A malformed annotation is treated
+ * as "no constraint" (ok). Shared by return-value and argument checking.
+ */
+export function validateValue(value: unknown, annotation: string): ReturnTypeCheck {
   let validator: (data: unknown) => unknown;
   try {
     validator = type(toArkDefinition(annotation) as never) as unknown as (data: unknown) => unknown;
   } catch {
     return { ok: true };
   }
-  const out = validator(toValue(rawValue));
+  const out = validator(value);
   if (out instanceof type.errors) {
     return { ok: false, message: out.summary };
   }

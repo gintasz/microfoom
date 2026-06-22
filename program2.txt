@@ -4,5 +4,5 @@ VIBEFUNCTION main()
 	res = VIBECALL fun(n = 2)
 	VIBERETURN(res)
 
-VIBEFUNCTION fun(n: number) -> number.integer
+VIBEFUNCTION fun(n: number.integer) -> number.integer
 	VIBERETURN("hello")

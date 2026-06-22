@@ -136,7 +136,7 @@ describe("pi-thoughtcode", () => {
       VIBE_LOAD_PROGRAM_TOOL_NAME,
       VIBE_THROW_TOOL_NAME,
     ]);
-    expect(commands).toEqual(["thoughtcode-inspect"]);
+    expect(commands).toEqual(["thoughtcode-inspect", "thoughtcode-run"]);
     expect(beforeAgentStart?.({ systemPrompt: "Base prompt" }).systemPrompt).toBe(
       `Base prompt\n\n${THOUGHTCODE_SYSTEM_PROMPT}`,
     );
@@ -958,7 +958,7 @@ describe("decorator enforcement (runtime side-effects)", () => {
   function setupFaux(
     id: string,
     modelIds: string[],
-    options: { tokensPerSecond?: number; reasoning?: boolean } = {},
+    options: { tokensPerSecond?: number; reasoning?: boolean; tokenSize?: { min?: number; max?: number } } = {},
   ): FauxSetup {
     const models = modelIds.map((modelId) => ({ id: modelId }));
     const faux = registerFauxProvider({
@@ -966,6 +966,7 @@ describe("decorator enforcement (runtime side-effects)", () => {
       provider: id,
       models,
       tokensPerSecond: options.tokensPerSecond,
+      tokenSize: options.tokenSize,
     });
     const authStorage = AuthStorage.inMemory();
     authStorage.setRuntimeApiKey(id, "test-key");
@@ -1072,11 +1073,16 @@ describe("decorator enforcement (runtime side-effects)", () => {
   });
 
   it("@timeout aborts a slow run and surfaces a throw", async () => {
-    const { faux, modelRegistry } = setupFaux("tc-timeout", ["tc-timeout-model"], { tokensPerSecond: 1 });
+    // Small 1-token chunks at 50 tok/s (~20ms each) so the abort is caught between chunks shortly after
+    // the 0.2s timer fires — a single huge chunk would block on an un-abortable setTimeout.
+    const { faux, modelRegistry } = setupFaux("tc-timeout", ["tc-timeout-model"], {
+      tokensPerSecond: 50,
+      tokenSize: { min: 1, max: 1 },
+    });
     const cwd = await writeProgram(["@timeout(0.2)", "VIBEFUNCTION fac(n: number)", "    VIBERETURN(n)", ""].join("\n"));
     const model = modelRegistry.find("tc-timeout", "tc-timeout-model");
-    // A long text response streams far slower than the 0.2s timeout (1 token/sec), so the timer fires first.
-    faux.setResponses([fauxAssistantMessage("delay ".repeat(80))]);
+    // ~600 tokens at 50/s ≈ 12s of streaming, far longer than the 0.2s timeout, so the timer fires first.
+    faux.setResponses([fauxAssistantMessage("x".repeat(2400))]);
 
     try {
       const [vibeCall] = createThoughtcodeTools();
