@@ -9,7 +9,6 @@ import {
 } from "@earendil-works/pi-tui";
 import {
   EXPANDED_ARGS_MAX_LENGTH,
-  EXPANDED_VALUE_MAX_LENGTH,
   INSPECT_VIEWPORT_HEIGHT_PCT,
   formatArgsForDisplay,
   formatDuration,
@@ -18,7 +17,6 @@ import {
   markerForProgress,
   sanitizeForDisplay,
 } from "../shared/display.js";
-import { truncateEnd } from "../shared/truncate.js";
 import type { VibeCallRunRecord } from "../types.js";
 import { appendTranscriptLines } from "./transcript-lines.js";
 
@@ -158,10 +156,17 @@ export class ThoughtcodeInspectOverlay implements Component {
     lines.push("", th.fg("muted", "Subagent"));
     appendTranscriptLines(lines, this.record.transcript, th, width);
 
+    // The overlay is a scrollable viewport, so show the full result/error wrapped — no truncation.
     if (this.record.result !== undefined) {
-      lines.push("", `${th.fg("muted", "result")} ${truncateEnd(this.record.result, EXPANDED_VALUE_MAX_LENGTH)}`);
+      lines.push("", th.fg("muted", "result"));
+      for (const line of sanitizeForDisplay(this.record.result).split("\n")) {
+        lines.push(...wrapTextWithAnsi(`  ${line}`, width));
+      }
     } else if (this.record.error !== undefined) {
-      lines.push("", `${th.fg("muted", "error")} ${truncateEnd(this.record.error, EXPANDED_VALUE_MAX_LENGTH)}`);
+      lines.push("", th.fg("muted", "error"));
+      for (const line of sanitizeForDisplay(this.record.error).split("\n")) {
+        lines.push(...wrapTextWithAnsi(`  ${line}`, width));
+      }
     }
 
     return lines;

@@ -1,6 +1,7 @@
 import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
-import { VIBE_CALL_TOOL_NAME, VIBE_RETURN_TOOL_NAME } from "thoughtcode-core";
+import { VIBE_CALL_TOOL_NAME, VIBE_RETURN_TOOL_NAME, VIBE_THROW_TOOL_NAME } from "thoughtcode-core";
 import {
+  EXPANDED_VALUE_MAX_LENGTH,
   MAX_RUN_EVENTS,
   STEP_MAX_LENGTH,
   formatPathForDisplay,
@@ -58,6 +59,11 @@ function previewToolArgs(toolName: string, args: unknown): string {
   }
   if (toolName === VIBE_RETURN_TOOL_NAME && typeof record.value === "string") {
     return truncateEnd(record.value, 80);
+  }
+  if (toolName === VIBE_THROW_TOOL_NAME && typeof record.message === "string") {
+    // Return the full message; the step is bounded by the caller (EXPANDED_VALUE_MAX_LENGTH at the
+    // source, STEP_MAX_LENGTH at compact display time), so the expanded view shows the whole throw.
+    return record.message;
   }
   for (const key of ["path", "command", "pattern", "query", "url", "value"]) {
     if (typeof record[key] === "string") {
@@ -241,7 +247,8 @@ export function updateProgressFromChildEvent(progress: VibeCallProgress, event: 
   if (event.type === "tool_execution_start") {
     const preview = previewToolArgs(event.toolName, event.args);
     const displayPreview = event.toolName === "read" && preview ? formatPathForDisplay(preview, cwd) : preview;
-    progress.step = truncateEnd(`tool ${event.toolName}${displayPreview ? ` ${displayPreview}` : ""}`, STEP_MAX_LENGTH);
+    // Keep enough for the expanded transcript; compact display re-truncates to STEP_MAX_LENGTH.
+    progress.step = truncateEnd(`tool ${event.toolName}${displayPreview ? ` ${displayPreview}` : ""}`, EXPANDED_VALUE_MAX_LENGTH);
     return true;
   }
   if (event.type === "tool_execution_update" && event.toolName === VIBE_CALL_TOOL_NAME) {

@@ -241,6 +241,9 @@ export async function runThoughtcodeSubagent(request: VibeSubagentRunRequest): P
         run.status = "error";
         run.endedAt = request.progress.endedAt;
         run.error = thrownMessage;
+        // Record the full message as its own transcript item — progress.step is truncated for the
+        // compact one-line status, but the expanded/inspect view must show the whole thing.
+        appendTranscriptItem(run, "error", thrownMessage);
         appendProgressUpdate(run, request.progress, cwd);
       }
       emitVibeCallProgress(request, request.progress, "error");

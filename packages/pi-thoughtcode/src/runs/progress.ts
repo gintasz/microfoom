@@ -17,7 +17,7 @@ export function classifyProgressStep(step: string): VibeCallEventType {
   if (step.startsWith("done ")) {
     return "return";
   }
-  if (step.startsWith("fail ")) {
+  if (step.startsWith("fail ") || step.startsWith("throw ")) {
     return "error";
   }
   return "status";
@@ -52,7 +52,9 @@ export function appendProgressTranscript(
     appendTranscriptItem(record, "return", step.slice(5));
     return;
   }
-  if (step.startsWith("fail ")) {
+  // "fail " and "throw " steps carry only the truncated message; the full text is appended as a
+  // dedicated "error" transcript item by the caller, so skip the truncated duplicate here.
+  if (step.startsWith("fail ") || step.startsWith("throw ")) {
     return;
   }
   appendTranscriptItem(record, "status", formatProgressStepForDisplay(step, true, cwd));
