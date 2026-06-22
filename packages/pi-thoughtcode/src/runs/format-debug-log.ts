@@ -50,6 +50,8 @@ function formatEntry(entry: RawEntry): string {
       return `${head}⏎ return ${truncateInline(str(entry.value))}`;
     case "reminder":
       return block(head, "! reminder ", str(entry.text));
+    case "warning":
+      return block(head, "⚠ warning ", str(entry.text));
     case "agent.error":
       return block(head, "✗ error ", str(entry.text));
     default:

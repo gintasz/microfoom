@@ -1,13 +1,8 @@
 # ThoughtCode program
 
-VIBEMETHOD main()
+VIBEFUNCTION main()
 	res = VIBECALL fac(n = 2)
 	VIBERETURN(res)
 
-VIBEMETHOD fac(n: number) -> int
-	if n <= 1
-        VIBERETURN(1)
-    else
-        subres = VIBECALL fac(n = n - 1)
-        n = n * subres
-	VIBERETURN(n)
+VIBEFUNCTION fac(n: number) -> string
+	VIBERETURN(hello)

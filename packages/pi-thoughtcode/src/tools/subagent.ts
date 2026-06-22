@@ -34,6 +34,7 @@ import {
   logSessionEvent,
   vibeCallDetailsFromToolResult,
 } from "../runs/index.js";
+import { resolveReturnType } from "./return-type.js";
 import { STEP_MAX_LENGTH } from "../shared/display.js";
 import { getTextContent } from "../shared/tool-result.js";
 import { truncateEnd } from "../shared/truncate.js";
@@ -51,10 +52,21 @@ export async function runThoughtcodeSubagent(request: VibeSubagentRunRequest): P
 
   let returnedValue: string | undefined;
   let subagentError: string | undefined;
+  const resolvedReturnType = await resolveReturnType(request.call.program_file_path, request.call.name, ctx.cwd);
+  if (resolvedReturnType.status === "invalid") {
+    // A declared-but-unrecognized return type is a program bug; fail the VIBECALL loudly rather than
+    // silently running without type checking.
+    throw new Error(
+      `VIBEFUNCTION \`${request.call.name}\` declares an unrecognized return type \`${resolvedReturnType.annotation}\`. ` +
+        `Use a valid type — e.g. int, str, bool, number, number.integer, or an ArkType expression like "number > 0" or '"ok" | "fail"'.`,
+    );
+  }
+  const returnType = resolvedReturnType.status === "ok" ? resolvedReturnType.type : undefined;
   const childTools = createThoughtcodeTools({
     depth: request.depth + 1,
     traceId: request.traceId,
     parentRunId: request.runId,
+    returnType,
     onVibeReturn: (value) => {
       returnedValue = value;
     },

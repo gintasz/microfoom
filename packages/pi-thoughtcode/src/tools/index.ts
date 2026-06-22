@@ -2,6 +2,14 @@ import type { ThoughtcodeToolOptions } from "../types.js";
 import { createVibeCallTool } from "./vibe-call.js";
 import { createVibeReturnTool } from "./vibe-return.js";
 
+export {
+  checkReturnValue,
+  isParsableReturnType,
+  normalizeReturnType,
+  resolveReturnType,
+  type ResolvedReturnType,
+  type ReturnTypeCheck,
+} from "./return-type.js";
 export { runThoughtcodeSubagent } from "./subagent.js";
 export { createVibeCallTool, vibeCallTool } from "./vibe-call.js";
 export { createVibeReturnTool, vibeReturnTool } from "./vibe-return.js";

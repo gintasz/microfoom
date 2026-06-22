@@ -157,6 +157,10 @@ export function logReminder(record: VibeCallRunRecord, text: string): void {
   write(contextFromRecord(record), { kind: "reminder", text });
 }
 
+export function logWarning(record: VibeCallRunRecord, text: string): void {
+  write(contextFromRecord(record), { kind: "warning", text });
+}
+
 /** Run id used for the top-level pi agent that interprets the ENTRYPOINT directly. */
 export const MAIN_RUN_ID = "main";
 

@@ -28,9 +28,13 @@
   },
   "scripts": {
     "build": "tsc -b",
-    "clean": "tsc -b --clean"
+    "clean": "tsc -b --clean",
+    "test": "vitest run --exclude '**/e2e.test.ts'",
+    "test:e2e": "vitest run e2e.test",
+    "test:all": "vitest run"
   },
   "dependencies": {
+    "arktype": "^2.2.0",
     "thoughtcode-core": "0.0.0",
     "typebox": "1.1.38"
   },

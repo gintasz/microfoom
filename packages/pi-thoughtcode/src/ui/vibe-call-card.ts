@@ -1,5 +1,5 @@
 import type { AgentToolResult, Theme } from "@earendil-works/pi-coding-agent";
-import { type Component, Text, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { type Component, Text, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { VIBE_CALL_TOOL_NAME } from "thoughtcode-core";
 import {
   COLLAPSED_ARGS_MAX_LENGTH,
@@ -99,5 +99,9 @@ function renderVibeCallResultLines(
     appendTranscriptLines(lines, details.transcript ?? [], theme, width);
   }
 
-  return lines;
+  // Safety net: the TUI crashes if any rendered line exceeds the terminal width. Flatten embedded
+  // newlines and clamp every line — single-value previews (done/fail/args) are not width-bounded above.
+  return lines.flatMap((line) =>
+    line.split("\n").map((segment) => (visibleWidth(segment) > width ? truncateToWidth(segment, width) : segment)),
+  );
 }

@@ -3,6 +3,7 @@ export {
   logRunEnd,
   logRunStart,
   logSessionEvent,
+  logWarning,
   logTopLevelEnd,
   logTopLevelEvent,
   logTopLevelStart,

@@ -77,6 +77,8 @@ export interface ThoughtcodeToolOptions {
   runSubagent?: VibeSubagentRunner;
   onVibeReturn?: (value: string) => void;
   depth?: number;
+  /** Declared return-type annotation of the VIBEFUNCTION this subagent executes, if any. */
+  returnType?: string;
   /** Root run id shared by an entire nested VIBECALL tree; used to correlate debug logs. */
   traceId?: string;
   /** Run id of the VIBECALL that owns the session these tools run in, if any. */

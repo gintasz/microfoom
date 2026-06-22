@@ -2,29 +2,29 @@
 
 ### Basics - Hello World
 ```
-VIBEMETHOD main()
+VIBEFUNCTION main()
 	res = Hello, world!
 	VIBERETURN(res)
 ```
 
 ### Basics - Function call
 ```
-VIBEMETHOD main()
+VIBEFUNCTION main()
 	res = VIBECALL mul(a = 3, my number = 9)
 	VIBERETURN(res)
 
-VIBEMETHOD mul(a: number, my number: number)
+VIBEFUNCTION mul(a: number, my number: number)
 	n = a * my number
 	VIBERETURN(n)
 ```
 
 ### Basics - Recursion
 ```
-VIBEMETHOD main()
+VIBEFUNCTION main()
 	res = VIBECALL fac(n = 4)
 	VIBERETURN(res)
 
-VIBEMETHOD fac(n: number)
+VIBEFUNCTION fac(n: number)
 	if n <= 1
         VIBERETURN(1)
     else
