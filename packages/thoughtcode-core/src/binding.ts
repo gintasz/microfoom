@@ -1,11 +1,10 @@
-import { validateValue, type ParsedParam } from "thoughtcode-core";
+// Argument binding: match caller args to declared params, apply defaults, type-check. Pure.
+
+import type { ParsedParam } from "./parser.js";
+import { validateValue } from "./types.js";
 
 export type ArgBinding = { ok: true; bound: Record<string, unknown> } | { ok: false; error: string };
 
-/**
- * Bind caller-supplied arg values to declared params: apply defaults, reject missing-required and
- * unknown args, then type-check each value against its declared ArkType type.
- */
 export function bindAndCheckArgs(params: ParsedParam[], values: Record<string, unknown>): ArgBinding {
   const bound: Record<string, unknown> = {};
   const declared = new Set(params.map((param) => param.name));

@@ -1,5 +1,12 @@
 export type {
   ThoughtcodeToolOptions,
+  VibeLoadProgramDetails,
+  VibeReturnDetails,
+  VibeSubagentRunRequest,
+  VibeSubagentRunner,
+  VibeThrowDetails,
+} from "./types.js";
+export type {
   VibeCallDetails,
   VibeCallEvent,
   VibeCallEventType,
@@ -7,24 +14,26 @@ export type {
   VibeCallRunRecord,
   VibeCallTranscriptItem,
   VibeCallUsage,
-  VibeLoadProgramDetails,
-  VibeReturnDetails,
-  VibeSubagentRunRequest,
-  VibeSubagentRunner,
-  VibeThrowDetails,
-} from "./types.js";
+} from "thoughtcode-core";
 export {
   appendThoughtcodeSystemPrompt,
+  bindAndCheckArgs,
   buildVibeRunConfig,
   checkReturnValue,
   collectVibeFunctionErrors,
   DECORATOR_REGISTRY,
   isParsableReturnType,
+  loadProgram,
+  prepareEntrypoint,
+  prepareVibeCall,
   validateProgramSyntax,
   validateValue,
+  type ArgBinding,
+  type LoadedProgram,
+  type PreparedEntrypoint,
   type VibeRunConfig,
 } from "thoughtcode-core";
-export { clearVibeCallRunsForTests, formatDebugLog, getVibeCallRun, listVibeCallRuns } from "./runs/index.js";
+export { clearVibeCallRunsForTests, formatDebugLog, getVibeCallRun, listVibeCallRuns } from "thoughtcode-core";
 export {
   createThoughtcodeTools,
   createVibeCallTool,
@@ -37,7 +46,7 @@ export {
   vibeReturnTool,
   vibeThrowTool,
 } from "./tools/index.js";
-export { bindAndCheckArgs, loadProgram, runThoughtcodeSubagent, type ArgBinding, type LoadedProgram } from "./runtime/index.js";
-export { inspectThoughtcodeRun, prepareEntrypoint, type PreparedEntrypoint } from "./commands/index.js";
+export { runThoughtcodeSubagent } from "./runtime/index.js";
+export { inspectThoughtcodeRun } from "./commands/index.js";
 export { ThoughtcodeInspectOverlay, renderVibeCallCall, renderVibeCallResult } from "./ui/index.js";
 export { default } from "./extension.js";

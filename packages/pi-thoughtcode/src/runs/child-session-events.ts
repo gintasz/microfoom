@@ -1,19 +1,20 @@
 import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
-import { VIBE_CALL_TOOL_NAME, VIBE_RETURN_TOOL_NAME, VIBE_THROW_TOOL_NAME } from "thoughtcode-core";
 import {
   EXPANDED_VALUE_MAX_LENGTH,
   MAX_RUN_EVENTS,
   STEP_MAX_LENGTH,
-  formatPathForDisplay,
-} from "../shared/display.js";
-import { getTextContent } from "../shared/tool-result.js";
-import { truncateEnd, truncateStart } from "../shared/truncate.js";
-import type { VibeCallProgress, VibeCallRunRecord } from "../types.js";
-import {
+  VIBE_CALL_TOOL_NAME,
+  VIBE_RETURN_TOOL_NAME,
+  VIBE_THROW_TOOL_NAME,
   appendTranscriptItem,
   formatNestedVibeCallTool,
+  formatPathForDisplay,
+  truncateEnd,
+  truncateStart,
   vibeCallDetailsFromToolResult,
-} from "./transcript.js";
+} from "thoughtcode-core";
+import type { VibeCallProgress, VibeCallRunRecord } from "thoughtcode-core";
+import { getTextContent } from "../shared/tool-result.js";
 
 function addUsage(progress: VibeCallProgress, usage: unknown): void {
   const record = usage as

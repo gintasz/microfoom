@@ -1,21 +1,15 @@
-import {
-  buildVibeFunctionNotFoundMessage,
-  collectVibeFunctionErrors,
-  parseVibeCallArgs,
-  serializeVibeCallArgs,
-  type ParsedParam,
-} from "thoughtcode-core";
-import { bindAndCheckArgs } from "../runtime/params.js";
-import { loadProgram } from "../runtime/program.js";
+// Resolve a top-level run invocation (e.g. `thoughtcode-run <file> <fn> <args>`): load the program,
+// confirm the entrypoint exists, parse user args (bare value / name=value / JSON object), bind + check.
+// Pure policy + program loading; the command/UI wiring lives in the harness adapter.
+
+import { bindAndCheckArgs } from "./binding.js";
+import { buildVibeFunctionNotFoundMessage } from "./messages.js";
+import { parseVibeCallArgs, serializeVibeCallArgs, type ParsedParam } from "./parser.js";
+import { loadProgram } from "./program-loader.js";
+import { collectVibeFunctionErrors } from "./validate.js";
 
 export type PreparedEntrypoint = { ok: true; args: string } | { ok: false; error: string };
 
-/**
- * Resolve a /thoughtcode-run invocation: load the program, confirm the entrypoint exists, parse the
- * user-supplied args (bare single value / `name=value` pairs / JSON object), bind + type-check them,
- * and return the normalized `name=value` arg string for the subagent prompt. Validated up front so the
- * user gets an immediate error instead of a failed agent run.
- */
 export async function prepareEntrypoint(
   programFilePath: string,
   functionName: string,
@@ -73,7 +67,6 @@ function parseEntrypointArgs(
     }
     return { values: parsed.values };
   }
-  // Bare single value bound to the sole parameter.
   if (params.length === 0) {
     return { error: `\`${functionName}\` takes no arguments` };
   }

@@ -1,7 +1,7 @@
-import {
-  formatProgressStepForDisplay,
-} from "../shared/display.js";
-import type { VibeCallEventType, VibeCallProgress, VibeCallRunRecord } from "../types.js";
+// Translate a progress `step` string into record event/transcript entries.
+
+import { formatProgressStepForDisplay } from "./display.js";
+import type { VibeCallEventType, VibeCallProgress, VibeCallRunRecord } from "./run-record.js";
 import { appendTranscriptItem, appendVibeCallEvent } from "./transcript.js";
 
 export function classifyProgressStep(step: string): VibeCallEventType {
@@ -24,11 +24,7 @@ export function classifyProgressStep(step: string): VibeCallEventType {
 }
 
 export function appendProgressEvent(record: VibeCallRunRecord, progress: VibeCallProgress, cwd: string | undefined): void {
-  appendVibeCallEvent(
-    record,
-    classifyProgressStep(progress.step),
-    formatProgressStepForDisplay(progress.step, true, cwd),
-  );
+  appendVibeCallEvent(record, classifyProgressStep(progress.step), formatProgressStepForDisplay(progress.step, true, cwd));
 }
 
 export function appendProgressTranscript(

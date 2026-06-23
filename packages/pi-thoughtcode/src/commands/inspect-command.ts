@@ -1,7 +1,5 @@
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import { INSPECT_VIEWPORT_HEIGHT_PCT } from "../shared/display.js";
-import { getVibeCallRun, listVibeCallRuns } from "../runs/index.js";
-import type { VibeCallRunRecord } from "../types.js";
+import { INSPECT_VIEWPORT_HEIGHT_PCT, getVibeCallRun, listVibeCallRuns, type VibeCallRunRecord } from "thoughtcode-core";
 import { ThoughtcodeInspectOverlay } from "../ui/inspect-overlay.js";
 
 function latestVibeCallRun(): VibeCallRunRecord | undefined {

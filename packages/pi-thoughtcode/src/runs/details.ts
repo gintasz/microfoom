@@ -1,48 +1,9 @@
-import type { VibeCallArgs } from "thoughtcode-core";
+// Emitting streaming progress as a pi AgentToolResult (via onUpdate). The record/details builders are
+// in core; this is the pi-specific bridge from a progress snapshot to a tool result.
+
+import { createVibeCallDetails, getVibeCallRun, type VibeCallDetails, type VibeCallProgress } from "thoughtcode-core";
 import { textResult } from "../shared/tool-result.js";
-import type {
-  VibeCallDetails,
-  VibeCallProgress,
-  VibeCallRunRecord,
-  VibeSubagentRunRequest,
-} from "../types.js";
-import { getVibeCallRun } from "./store.js";
-
-export function createVibeCallProgress(depth: number): VibeCallProgress {
-  return {
-    status: "run",
-    depth,
-    startedAt: Date.now(),
-    step: "think",
-  };
-}
-
-export function createVibeCallDetails(
-  runId: string,
-  call: VibeCallArgs,
-  prompt: string,
-  status: VibeCallDetails["status"],
-  depth: number,
-  progress: VibeCallProgress | undefined,
-  events: VibeCallDetails["events"] | undefined,
-  transcript: VibeCallDetails["transcript"] | undefined,
-  extra: Pick<VibeCallDetails, "result" | "error" | "thrown"> = {},
-): VibeCallDetails {
-  return {
-    kind: "vibecall",
-    runId,
-    program_file_path: call.program_file_path,
-    name: call.name,
-    args: call.args,
-    prompt,
-    status,
-    depth,
-    ...(progress ? { progress } : {}),
-    ...(events ? { events: [...events] } : {}),
-    ...(transcript ? { transcript: [...transcript] } : {}),
-    ...extra,
-  };
-}
+import type { VibeSubagentRunRequest } from "../types.js";
 
 export function emitVibeCallProgress(
   request: VibeSubagentRunRequest,
@@ -65,33 +26,4 @@ export function emitVibeCallProgress(
       ),
     ),
   );
-}
-
-export function createVibeCallRunRecord(
-  runId: string,
-  toolCallId: string,
-  call: VibeCallArgs,
-  prompt: string,
-  depth: number,
-  progress: VibeCallProgress,
-  cwd: string | undefined,
-  traceId: string = runId,
-  parentRunId?: string,
-): VibeCallRunRecord {
-  return {
-    id: runId,
-    toolCallId,
-    traceId,
-    parentRunId,
-    call,
-    prompt,
-    status: "running",
-    depth,
-    progress,
-    events: [],
-    transcript: [],
-    nestedUsageByRunId: new Map(),
-    cwd,
-    startedAt: progress.startedAt,
-  };
 }

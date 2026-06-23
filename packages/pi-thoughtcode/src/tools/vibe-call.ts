@@ -1,34 +1,26 @@
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
 import {
+  STEP_MAX_LENGTH,
   VIBE_CALL_TOOL_DESCRIPTION,
+  appendProgressUpdate,
   buildVibeCallFailureMessage,
   buildVibeCallSubagentPrompt,
   buildVibeCallThrewMessage,
-  buildVibeFunctionNotFoundMessage,
-  buildVibeRunConfig,
-  collectVibeFunctionErrors,
-  parseVibeCallArgs,
-  serializeVibeCallArgs,
-  type VibeCallArgs,
-  type VibeRunConfig,
-} from "thoughtcode-core";
-import {
-  appendProgressUpdate,
   createVibeCallDetails,
   createVibeCallProgress,
   createVibeCallRunId,
   createVibeCallRunRecord,
-  logRunEnd,
-  logRunStart,
+  prepareVibeCall,
   setVibeCallRun,
-} from "../runs/index.js";
-import { STEP_MAX_LENGTH } from "../shared/display.js";
+  truncateEnd,
+  type VibeCallArgs,
+  type VibeCallDetails,
+  type VibeRunConfig,
+} from "thoughtcode-core";
+import { logRunEnd, logRunStart } from "../runs/index.js";
 import { getErrorMessage, textResult } from "../shared/tool-result.js";
-import { truncateEnd } from "../shared/truncate.js";
-import type { ThoughtcodeToolOptions, VibeCallDetails } from "../types.js";
+import type { ThoughtcodeToolOptions } from "../types.js";
 import { renderVibeCallCall, renderVibeCallResult } from "../ui/index.js";
-import { bindAndCheckArgs } from "../runtime/params.js";
-import { loadProgram } from "../runtime/program.js";
 import { runThoughtcodeSubagent } from "../runtime/subagent.js";
 import { vibeCallParameters, type VibeCallParams } from "./schema.js";
 import { VibeThrowError } from "./vibe-throw.js";
@@ -64,34 +56,20 @@ export function createVibeCallTool(options: ThoughtcodeToolOptions = {}) {
           createVibeCallDetails(runId, rawCall, "", "error", depth, undefined, undefined, undefined, { error: message }),
         );
 
-      // Parse the program ONCE, then resolve everything the callee needs from the model: declared
-      // return type, decorator run-config, and the bound/type-checked arguments. A bad arg is the
-      // caller's fault → return an error result it can retry. When the file can't be read we proceed
-      // with raw args; the subagent's VIBELOADPROGRAM surfaces the read error.
+      // Core resolves the call (validate callee decl, bind + type-check args, derive return type and
+      // run config) — a bad arg is the caller's fault → return an error result it can retry. When the
+      // file can't be read we proceed with raw args; the subagent's VIBELOADPROGRAM surfaces that.
       let resolvedArgs = rawCall.args;
       let returnType: string | undefined;
       let runConfig: VibeRunConfig = {};
-      const loaded = await loadProgram(rawCall.program_file_path, ctx?.cwd);
-      if (loaded.ok) {
-        const fn = loaded.program.functions.get(rawCall.name);
-        if (!fn) {
-          return argError(buildVibeFunctionNotFoundMessage(rawCall.name, rawCall.program_file_path));
-        }
-        const declErrors = collectVibeFunctionErrors(fn);
-        if (declErrors.length > 0) {
-          return argError(`VIBEFUNCTION \`${rawCall.name}\`: ${declErrors.join("; ")}`);
-        }
-        returnType = fn.returnType;
-        runConfig = buildVibeRunConfig(fn.decorators).config;
-        const parsedArgs = parseVibeCallArgs(rawCall.args);
-        if (parsedArgs.errors.length > 0) {
-          return argError(`${rawCall.name}: ${parsedArgs.errors.join("; ")}`);
-        }
-        const binding = bindAndCheckArgs(fn.params, parsedArgs.values);
-        if (!binding.ok) {
-          return argError(`${rawCall.name}: ${binding.error}`);
-        }
-        resolvedArgs = serializeVibeCallArgs(binding.bound);
+      const prep = await prepareVibeCall(rawCall.program_file_path, rawCall.name, rawCall.args, ctx?.cwd);
+      if (prep.status === "error") {
+        return argError(prep.message);
+      }
+      if (prep.status === "ok") {
+        resolvedArgs = prep.resolvedArgs;
+        returnType = prep.returnType;
+        runConfig = prep.runConfig;
       }
 
       const call: VibeCallArgs = { ...rawCall, args: resolvedArgs };

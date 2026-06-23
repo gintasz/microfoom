@@ -1,23 +1,23 @@
 import type { AgentToolResult, Theme } from "@earendil-works/pi-coding-agent";
 import { type Component, Text, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
-import { VIBE_CALL_TOOL_NAME } from "thoughtcode-core";
 import {
   COLLAPSED_ARGS_MAX_LENGTH,
   COLLAPSED_VALUE_MAX_LENGTH,
   EXPANDED_ARGS_MAX_LENGTH,
   EXPANDED_VALUE_MAX_LENGTH,
+  VIBE_CALL_TOOL_NAME,
   formatArgsForDisplay,
   formatDuration,
   formatPathForDisplay,
   formatProgressStepForDisplay,
   formatUsage,
   labelForStatus,
-  markerForProgress,
   sanitizeForDisplay,
-} from "../shared/display.js";
-import { truncateEnd } from "../shared/truncate.js";
+  truncateEnd,
+  type VibeCallDetails,
+} from "thoughtcode-core";
 import type { VibeCallParams } from "../tools/schema.js";
-import type { VibeCallDetails } from "../types.js";
+import { markerForProgress } from "./markers.js";
 import { appendTranscriptLines } from "./transcript-lines.js";
 
 export function renderVibeCallCall(_args: VibeCallParams, _theme: Theme, _executionStarted: boolean): Text {

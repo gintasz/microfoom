@@ -14,10 +14,10 @@ import {
   formatDuration,
   formatPathForDisplay,
   labelForStatus,
-  markerForProgress,
   sanitizeForDisplay,
-} from "../shared/display.js";
-import type { VibeCallRunRecord } from "../types.js";
+  type VibeCallRunRecord,
+} from "thoughtcode-core";
+import { markerForProgress } from "./markers.js";
 import { appendTranscriptLines } from "./transcript-lines.js";
 
 function padToWidth(value: string, width: number): string {

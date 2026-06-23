@@ -1,7 +1,6 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { wrapTextWithAnsi } from "@earendil-works/pi-tui";
-import { sanitizeForDisplay } from "../shared/display.js";
-import type { VibeCallTranscriptItem } from "../types.js";
+import { sanitizeForDisplay, type VibeCallTranscriptItem } from "thoughtcode-core";
 
 const transcriptLabels: Record<VibeCallTranscriptItem["role"], string> = {
   assistant: "Assistant",

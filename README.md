@@ -1,3 +1,9 @@
+# FoomScript
+“this probably should not work but does.”
+
+A programming language for when “let the model figure it out” needs a call stack.
+
+
 ## Examples
 
 ### Basics - Hello World

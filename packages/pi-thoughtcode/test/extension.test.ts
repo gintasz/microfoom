@@ -42,7 +42,7 @@ import thoughtcodeExtension, {
   vibeCallTool,
   vibeReturnTool,
 } from "../dist/index.js";
-import { addNestedVibeCallUsage } from "../dist/runs/index.js";
+import { addNestedVibeCallUsage } from "thoughtcode-core";
 
 const SCRATCH_DIR = "/tmp/agentic_coding";
 const vibeCallArgs = (program_file_path: string, name: string, args: string): VibeCallArgs => ({

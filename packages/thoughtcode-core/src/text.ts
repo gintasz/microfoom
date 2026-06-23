@@ -1,3 +1,5 @@
+// Pure text truncation helpers used across parsing, display, and observability.
+
 export function truncateEnd(value: string, maxLength: number): string {
   if (value.length <= maxLength) {
     return value;

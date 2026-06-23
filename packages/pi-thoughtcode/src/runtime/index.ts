@@ -1,4 +1,3 @@
-// The execution engine: running a VIBEFUNCTION as a subagent, loading/parsing programs, binding args.
+// The harness-specific execution layer: spawning a VIBEFUNCTION as a pi subagent.
+// (Program loading, arg binding, and call orchestration are harness-agnostic — they live in core.)
 export { runThoughtcodeSubagent } from "./subagent.js";
-export { loadProgram, type LoadedProgram } from "./program.js";
-export { bindAndCheckArgs, type ArgBinding } from "./params.js";

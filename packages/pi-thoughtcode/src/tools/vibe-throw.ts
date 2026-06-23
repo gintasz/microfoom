@@ -1,19 +1,10 @@
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
-import { VIBE_THROW_TOOL_DESCRIPTION, type VibeThrowArgs } from "thoughtcode-core";
+import { VIBE_THROW_TOOL_DESCRIPTION, VibeThrowError, type VibeThrowArgs } from "thoughtcode-core";
 import { textResult } from "../shared/tool-result.js";
 import type { ThoughtcodeToolOptions, VibeThrowDetails } from "../types.js";
 import { vibeThrowParameters, type VibeThrowParams } from "./schema.js";
 
-/**
- * A VIBEFUNCTION deliberately aborting via the VIBETHROW tool. Distinct from a generic Error so the
- * VIBECALL boundary can tell an intentional program throw apart from an infrastructure failure.
- */
-export class VibeThrowError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "VibeThrowError";
-  }
-}
+export { VibeThrowError };
 
 export function createVibeThrowTool(options: ThoughtcodeToolOptions = {}) {
   return defineTool({

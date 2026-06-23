@@ -1,7 +1,9 @@
-import type { Theme } from "@earendil-works/pi-coding-agent";
+// Pure presentation helpers + size limits for run cards/inspectors and the compact progress line.
+// No theme/rendering deps (those live in the adapter's UI layer).
+
 import { isAbsolute, relative } from "node:path";
-import type { VibeCallDetails, VibeCallProgress, VibeCallUsage } from "../types.js";
-import { truncateEnd, truncateMiddle, truncateStart } from "./truncate.js";
+import type { VibeCallDetails, VibeCallProgress, VibeCallUsage } from "./run-record.js";
+import { truncateEnd, truncateMiddle, truncateStart } from "./text.js";
 
 export const COLLAPSED_ARGS_MAX_LENGTH = 140;
 export const EXPANDED_ARGS_MAX_LENGTH = 1000;
@@ -58,16 +60,6 @@ export function formatUsage(usage: VibeCallUsage | undefined, cumulative = false
     parts.push("(cumulative)");
   }
   return parts.join(" ");
-}
-
-export function markerForProgress(progress: VibeCallProgress | undefined, status: VibeCallDetails["status"], theme: Theme): string {
-  if (progress?.status === "done" || status === "done") {
-    return theme.fg("success", "✓");
-  }
-  if (progress?.status === "fail" || status === "error" || status === "aborted") {
-    return theme.fg("error", "✗");
-  }
-  return theme.fg("accent", "◐");
 }
 
 export function labelForStatus(progress: VibeCallProgress | undefined, status: VibeCallDetails["status"]): string {

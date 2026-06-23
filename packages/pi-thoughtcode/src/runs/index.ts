@@ -1,3 +1,5 @@
+// The pi-specific observability edges. The agnostic model/store/usage/transcript/progress/formatter
+// live in thoughtcode-core — import those directly from core, not through here.
 export {
   logReminder,
   logRunEnd,
@@ -9,15 +11,4 @@ export {
   logTopLevelStart,
   MAIN_RUN_ID,
 } from "./debug-log.js";
-export { formatDebugLog } from "./format-debug-log.js";
-export { createVibeCallDetails, createVibeCallProgress, createVibeCallRunRecord, emitVibeCallProgress } from "./details.js";
-export { appendProgressEvent, appendProgressTranscript, appendProgressUpdate, classifyProgressStep } from "./progress.js";
-export { clearVibeCallRunsForTests, createVibeCallRunId, getVibeCallRun, listVibeCallRuns, setVibeCallRun } from "./store.js";
-export {
-  appendNestedVibeCallToolTranscript,
-  appendTranscriptItem,
-  appendVibeCallEvent,
-  formatNestedVibeCallTool,
-  vibeCallDetailsFromToolResult,
-} from "./transcript.js";
-export { addNestedVibeCallUsage } from "./usage.js";
+export { emitVibeCallProgress } from "./details.js";

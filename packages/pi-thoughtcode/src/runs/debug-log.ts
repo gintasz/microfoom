@@ -1,9 +1,9 @@
 import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { VIBE_RETURN_TOOL_NAME } from "thoughtcode-core";
+import { VIBE_RETURN_TOOL_NAME, type VibeCallRunRecord } from "thoughtcode-core";
 import { getTextContent } from "../shared/tool-result.js";
-import type { VibeCallRunRecord, VibeSubagentRunRequest } from "../types.js";
+import type { VibeSubagentRunRequest } from "../types.js";
 
 // Cap individual field sizes so a single huge tool result can't produce an unreadable line.
 const MAX_FIELD_CHARS = 20000;

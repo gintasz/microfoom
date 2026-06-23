@@ -1,3 +1,2 @@
-// User-facing slash commands: /thoughtcode-run (entrypoint) and /thoughtcode-inspect.
-export { prepareEntrypoint, type PreparedEntrypoint } from "./entrypoint.js";
+// Harness slash commands. The /thoughtcode-run argument resolution (prepareEntrypoint) is in core.
 export { inspectThoughtcodeRun } from "./inspect-command.js";

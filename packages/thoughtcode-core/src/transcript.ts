@@ -1,12 +1,9 @@
-import { VIBE_CALL_TOOL_NAME } from "thoughtcode-core";
-import { MAX_RUN_EVENTS } from "../shared/display.js";
-import { truncateEnd } from "../shared/truncate.js";
-import type {
-  VibeCallDetails,
-  VibeCallEventType,
-  VibeCallRunRecord,
-  VibeCallTranscriptItem,
-} from "../types.js";
+// Append-only mutation of a run record's event log and transcript. Pure data ops.
+
+import { MAX_RUN_EVENTS } from "./display.js";
+import type { VibeCallDetails, VibeCallEventType, VibeCallRunRecord, VibeCallTranscriptItem } from "./run-record.js";
+import { truncateEnd } from "./text.js";
+import { VIBE_CALL_TOOL_NAME } from "./tool-defs.js";
 
 export function appendVibeCallEvent(record: VibeCallRunRecord, type: VibeCallEventType, text: string): void {
   const trimmed = text.trim();

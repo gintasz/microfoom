@@ -5,15 +5,16 @@ import {
   VIBE_THROW_TOOL_NAME,
   appendThoughtcodeSystemPrompt,
   buildVibeCallSubagentPrompt,
+  listVibeCallRuns,
+  prepareEntrypoint,
 } from "thoughtcode-core";
 import {
   MAIN_RUN_ID,
-  listVibeCallRuns,
   logTopLevelEnd,
   logTopLevelEvent,
   logTopLevelStart,
 } from "./runs/index.js";
-import { inspectThoughtcodeRun, prepareEntrypoint } from "./commands/index.js";
+import { inspectThoughtcodeRun } from "./commands/index.js";
 import { createThoughtcodeTools } from "./tools/index.js";
 
 const thoughtcodeExtension: ExtensionFactory = (pi: ExtensionAPI) => {

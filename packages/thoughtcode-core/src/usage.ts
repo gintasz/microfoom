@@ -1,13 +1,9 @@
-import type { VibeCallDetails, VibeCallRunRecord, VibeCallUsage } from "../types.js";
+// Token/cost usage aggregation, including folding a nested VIBECALL's cumulative usage into its parent.
+
+import type { VibeCallDetails, VibeCallRunRecord, VibeCallUsage } from "./run-record.js";
 
 function emptyUsage(): VibeCallUsage {
-  return {
-    input: 0,
-    output: 0,
-    cacheRead: 0,
-    cacheWrite: 0,
-    cost: 0,
-  };
+  return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 };
 }
 
 function addUsage(target: VibeCallUsage, delta: VibeCallUsage): void {
@@ -28,6 +24,7 @@ function subtractUsage(current: VibeCallUsage, previous: VibeCallUsage | undefin
   };
 }
 
+/** Fold a nested VIBECALL's cumulative usage into the parent record (delta-based, no double-count). */
 export function addNestedVibeCallUsage(record: VibeCallRunRecord, childDetails: VibeCallDetails): boolean {
   const childUsage = childDetails.progress?.usage;
   if (!childUsage) {
