@@ -1,7 +1,16 @@
 import { fileURLToPath } from "node:url";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { describe, expect, it } from "vitest";
-import { CONTROL_TOOLS, foom, Program, runProgram } from "../src/index.ts";
+import { z } from "zod";
+import {
+  CONTROL_TOOLS,
+  foom,
+  type OpenSession,
+  Program,
+  runProgram,
+  type SessionTurnRequest,
+  type SessionTurnResult,
+} from "../src/index.ts";
 import { makeStandardSchema } from "../src/standard_schema.ts";
 import { type FakeRound, fakeOpenSession } from "./fake_session.ts";
 import { Calc } from "./fixtures/calc_program.ts";
@@ -68,6 +77,71 @@ describe("program facade (end to end, faux session)", () => {
       className: "Calc",
     });
     expect(out).toBe(42);
+  });
+
+  it("propagates a {tool}-tier method's promptSnippet/promptGuidelines to its native tool def", async () => {
+    let toolDefs: SessionTurnRequest["tools"] = [];
+    const capturing: OpenSession = () => ({
+      async runTurn(request: SessionTurnRequest): Promise<SessionTurnResult> {
+        toolDefs = request.tools;
+        return {
+          assistantText: "done",
+          usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+        };
+      },
+    });
+
+    class WithTool extends Program<typeof stringInput, string>(stringInput) {
+      async main(): Promise<string> {
+        return await this.agent.text`go`;
+      }
+      @foom.expose({
+        tool: {
+          description: "scores findings",
+          promptSnippet: "Use to score a finding count.",
+          promptGuidelines: ["Pass a positive count.", "Returns 0 to 100."],
+        },
+      })
+      async score(): Promise<number> {
+        return 0;
+      }
+    }
+
+    await runProgram(WithTool, "x", { openSession: capturing, model: "fake" });
+    const score = toolDefs.find((tool) => tool.name === "score");
+    expect(score?.description).toBe("scores findings");
+    expect(score?.promptSnippet).toBe("Use to score a finding count.");
+    expect(score?.promptGuidelines).toEqual(["Pass a positive count.", "Returns 0 to 100."]);
+  });
+
+  it("advertises the value schema on foom_return and appends the value-turn notice", async () => {
+    let request: SessionTurnRequest | undefined;
+    const capturing: OpenSession = () => ({
+      async runTurn(req: SessionTurnRequest): Promise<SessionTurnResult> {
+        request = req;
+        const returnTool = req.tools.find((tool) => tool.name === CONTROL_TOOLS.return);
+        await returnTool?.execute({ value: { name: "Ada" } });
+        return { assistantText: "", usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 } };
+      },
+    });
+
+    const returnShape = z.object({ name: z.string() });
+    class P extends Program(stringInput) {
+      async main(): Promise<{ name: string }> {
+        return await this.agent.value(returnShape)`give a person`;
+      }
+    }
+
+    await runProgram(P, "x", { openSession: capturing, model: "fake" });
+
+    const returnTool = request?.tools.find((tool) => tool.name === CONTROL_TOOLS.return);
+    const params = returnTool?.parameters as
+      | { properties?: { value?: Record<string, unknown> } }
+      | undefined;
+    expect(params?.properties?.value).toMatchObject({ type: "object", required: ["name"] });
+    expect(request?.prompt).toContain("<!-- microfoom:begin -->");
+    expect(request?.prompt).toContain("You must end this turn by calling the foom_return tool");
+    expect(request?.prompt).toContain("foom_throw");
   });
 
   it("repairs an invalid return then succeeds", async () => {

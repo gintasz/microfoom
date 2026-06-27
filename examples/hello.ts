@@ -1,31 +1,27 @@
 // A hello-world microfoom program. TypeScript orchestrates; the model does only
 // the fuzzy bit (writing the greeting) and returns it through the structured
-// channel (FOOMRETURN), schema-validated.
+// channel (foom_return), schema-validated.
+//
+// Schemas are any Standard Schema (F4) — here plain zod. The library depends on
+// no validator; you bring your own (zod is just a dev/example dependency).
 //
 // Run it:
-//   pnpm run example            # greets "world"
-//   pnpm run example -- Ada     # greets "Ada"
+//   pnpm run example -- Ada            # greets "Ada"
+//   microfoom run examples/hello.ts Ada
 // (needs a model + API key in ~/.pi; see examples/README.md)
 
-import { foom, makeStandardSchema, Program } from "@microfoom/core";
+import { foom, Program } from "@microfoom/core";
+import { z } from "zod";
 
-const name = makeStandardSchema<string>((input) =>
-  typeof input === "string" ? { value: input } : { issues: [{ message: "name must be a string" }] },
-);
-
-const greeting = makeStandardSchema<string>((input) =>
-  typeof input === "string"
-    ? { value: input }
-    : { issues: [{ message: "greeting must be a string" }] },
-);
+const name = z.string();
 
 @foom.config({
   model: process.env.MICROFOOM_MODEL ?? "openrouter/deepseek/deepseek-v4-flash",
   thinking: "low",
 })
-export default class Hello extends Program<typeof name, string>(name) {
+export default class Hello extends Program(name) {
   async main(who: string): Promise<string> {
-    return await this.agent.value(greeting)`
+    return await this.agent.value(z.string())`
       Call the foom_return tool with a warm, one-sentence greeting for ${who}.
       Respond ONLY with the foom_return tool call — no prose.
     `;

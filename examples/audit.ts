@@ -18,24 +18,24 @@
 //   microfoom run examples/audit.ts "acme.com"
 //   pnpm cli examples/audit.ts "acme.com" --faux        # offline, deterministic
 
-import { foom, makeStandardSchema, Program } from "@microfoom/core";
+import { foom, Program } from "@microfoom/core";
+// Importing the trace entry adds the instrumentation surface (scope/annotate/log)
+// to `this.agent` — the methods exist at runtime regardless; this types them (F8).
+import "@microfoom/core/trace";
+import { z } from "zod";
 
-const site = makeStandardSchema<string>((input) =>
-  typeof input === "string" ? { value: input } : { issues: [{ message: "site must be a string" }] },
-);
-
-const line = makeStandardSchema<string>((input) =>
-  typeof input === "string" ? { value: input } : { issues: [{ message: "expected a string" }] },
-);
+// Schemas are any Standard Schema (F4); zod implements it natively, so a bare
+// `z.string()` is a valid return/input schema — no wrapper needed.
+const site = z.string();
 
 @foom.config({
   model: process.env.MICROFOOM_MODEL ?? "openrouter/deepseek/deepseek-v4-flash",
   thinking: "low",
 })
-export default class Audit extends Program<typeof site, string>(site) {
+export default class Audit extends Program(site) {
   async main(target: string): Promise<string> {
     // 1) A plain sequential turn. `.with({ label })` names its row in the panel.
-    const intro = await this.agent.with({ label: "intro" }).value(line)`
+    const intro = await this.agent.with({ label: "intro" }).value(z.string())`
       One short sentence introducing a security audit of ${target}.
       Respond ONLY with the foom_return tool call carrying that sentence.
     `;
@@ -48,7 +48,7 @@ export default class Audit extends Program<typeof site, string>(site) {
 
     const findings = await Promise.all(
       routes.map(
-        (route) => audit.with({ label: route }).value(line)`
+        (route) => audit.with({ label: route }).value(z.string())`
           Give a one-line finding about missing authentication on the ${route} route
           of ${target}. Respond ONLY with the foom_return tool call.
         `,
@@ -56,16 +56,17 @@ export default class Audit extends Program<typeof site, string>(site) {
     );
 
     // A nested scope under "audit" — re-checks the riskiest route, one level deeper.
+    const primary = routes[0] ?? "/login";
     const deep = audit.scope("deep-check");
-    const recheck = await deep.with({ label: routes[0] }).value(line)`
-      Re-examine ${routes[0]} for auth bypass specifically. One line.
+    const recheck = await deep.with({ label: primary }).value(z.string())`
+      Re-examine ${primary} for auth bypass specifically. One line.
       Respond ONLY with the foom_return tool call.
     `;
     audit.log(`${findings.length} routes audited`);
 
     // 3) A turn that asks the agent to call an exposed method (a foom_call → its
     // own method span in the tree), then return a string verdict.
-    const verdict = await this.agent.with({ label: "verdict" }).value(line)`
+    const verdict = await this.agent.with({ label: "verdict" }).value(z.string())`
       Call score with findingCount=${findings.length} to get a numeric risk score,
       then foom_return a one-line verdict that includes that score.
     `;

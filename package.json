@@ -52,6 +52,7 @@
     "tsx": "4.22.4",
     "typescript": "5.9.3",
     "unplugin-swc": "1.5.9",
-    "vitest": "4.1.8"
+    "vitest": "4.1.8",
+    "zod": "4.4.3"
   }
 }

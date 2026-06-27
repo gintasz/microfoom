@@ -103,7 +103,7 @@ export function attachContext<P extends object>(program: P, context: AgentProgra
 }
 
 /** The program base class. Extend via Program(schema) for a typed input. */
-export abstract class FoomtimeProgram<I = string[], R = void> {
+export abstract class FoomtimeProgram<I = string[], R = unknown> {
   static input?: StandardSchemaV1;
   static maxProgramDuration?: string;
 
@@ -120,8 +120,12 @@ export abstract class FoomtimeProgram<I = string[], R = void> {
   abstract main(input: I): Promise<R>;
 }
 
-/** Name an input schema, then `extends Program(Input)`; main(input) is typed. */
-export function Program<S extends StandardSchemaV1, R = void>(
+/**
+ * Name an input schema, then `extends Program(Input)`; `main(input)` is typed from
+ * it. The return type is taken from your `main` (inferred by `runProgram`), so the
+ * common case needs no type arguments at all — just `extends Program(schema)`.
+ */
+export function Program<S extends StandardSchemaV1, R = unknown>(
   input: S,
 ): abstract new () => FoomtimeProgram<StandardSchemaV1.InferOutput<S>, R> {
   abstract class BoundProgram extends FoomtimeProgram<StandardSchemaV1.InferOutput<S>, R> {
@@ -153,11 +157,18 @@ export interface RunProgramOptions {
 }
 
 const PROTOCOL_PREAMBLE = [
-  "You drive a TypeScript program through structured tools — never describe an action in prose, perform it with the tool:",
-  "- foom_call: invoke an exposed program method by name.",
-  "- foom_inspect: read a method's parameter schema before calling it.",
-  "- foom_return: return the final structured value (only on a value turn).",
-  "- foom_throw: abort with a deliberate error and a caller-defined code.",
+  "<!-- microfoom:begin -->",
+  "You are running inside a microfoom runtime.",
+  "<!-- microfoom:end -->",
+].join("\n");
+
+// Appended to a value turn's prompt (only). A delimited meta-notice — the markers
+// (matching PROTOCOL_PREAMBLE) signal it is runtime instruction, not task input —
+// nudging the model to actually terminate the turn with foom_return.
+const VALUE_TURN_NOTICE = [
+  "<!-- microfoom:begin -->",
+  "You must end this turn by calling the foom_return tool with the result; If you cannot complete the task as the user instruction expects, or the instructions are defective or contradictory, call foom_throw instead.",
+  "<!-- microfoom:end -->",
 ].join("\n");
 
 function pickConfig(options: AgentOptions): AgentConfig {
@@ -259,10 +270,24 @@ function methodConfigOf(runtime: Runtime, method: string): AgentConfig | undefin
 }
 
 function buildContext(runtime: Runtime): ProgramTurnContext {
-  const toolTier: Array<{ name: string; description: string }> = [];
+  const toolTier: Array<{
+    name: string;
+    description: string;
+    promptSnippet?: string;
+    promptGuidelines?: readonly string[];
+  }> = [];
   for (const [name, meta] of runtime.exposed) {
     if (meta.tier === "tool")
-      toolTier.push({ name, description: meta.tool?.description ?? `Method ${name}.` });
+      toolTier.push({
+        name,
+        description: meta.tool?.description ?? `Method ${name}.`,
+        ...(meta.tool?.promptSnippet !== undefined
+          ? { promptSnippet: meta.tool.promptSnippet }
+          : {}),
+        ...(meta.tool?.promptGuidelines !== undefined
+          ? { promptGuidelines: meta.tool.promptGuidelines }
+          : {}),
+      });
   }
   return {
     isExposed: (method) => runtime.exposed.has(method),
@@ -418,6 +443,9 @@ function makeRun(
           : { type: "turn_start", span },
       );
     }
+    // A value turn must terminate with foom_return; nudge the model at the end of
+    // its prompt (text turns just produce prose, so they need no notice).
+    const turnPrompt = mode.kind === "value" ? `${prompt}\n\n${VALUE_TURN_NOTICE}` : prompt;
     const startedAt = Date.now();
     try {
       const session = await source.get();
@@ -427,7 +455,7 @@ function makeRun(
         runProgramTurn({
           session,
           systemPrompt: prepared.systemPrompt,
-          prompt,
+          prompt: turnPrompt,
           mode,
           ctx: buildContext(runtime),
           caps: prepared.caps,
@@ -600,13 +628,18 @@ function makeContext<P extends object>(
   return context;
 }
 
-/** Construct, wire `this.agent`, and run a program to its result (the facade). */
-export async function runProgram<R>(
-  ProgramClass: abstract new () => FoomtimeProgram<never, R>,
+/**
+ * Construct, wire `this.agent`, and run a program to its result (the facade). The
+ * result type is inferred from the program's `main` return, so callers need not
+ * (and the class need not) declare it.
+ */
+export async function runProgram<P extends FoomtimeProgram<never, unknown>>(
+  ProgramClass: abstract new () => P,
   rawInput: unknown,
   options: RunProgramOptions,
-): Promise<R> {
-  const Ctor = ProgramClass as unknown as new () => FoomtimeProgram<unknown, R>;
+): Promise<Awaited<ReturnType<P["main"]>>> {
+  type Result = Awaited<ReturnType<P["main"]>>;
+  const Ctor = ProgramClass as unknown as new () => FoomtimeProgram<unknown, Result>;
   const instance = new Ctor();
 
   const inputSchema = (ProgramClass as unknown as { input?: StandardSchemaV1 }).input;

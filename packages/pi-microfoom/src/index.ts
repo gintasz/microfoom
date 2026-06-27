@@ -48,11 +48,24 @@ const PI_THINKING: ReadonlySet<string> = new Set([
   "xhigh",
 ]);
 
+// The per-turn Agent is raw pi-agent-core (no promptSnippet/promptGuidelines slot
+// — those are a pi-coding-agent system-prompt feature, and microfoom runs a
+// controlled session, not pi's auto-prompt). So fold a tool's snippet/guidelines
+// into the one model-native field this layer has: the description.
+function toolDescription(tool: NeutralToolDef): string {
+  const parts = [tool.description];
+  if (tool.promptSnippet !== undefined) parts.push(tool.promptSnippet);
+  if (tool.promptGuidelines !== undefined && tool.promptGuidelines.length > 0) {
+    parts.push(["Guidelines:", ...tool.promptGuidelines.map((rule) => `- ${rule}`)].join("\n"));
+  }
+  return parts.join("\n\n");
+}
+
 function toAgentTool(tool: NeutralToolDef): AgentTool {
   return {
     name: tool.name,
     label: tool.name,
-    description: tool.description,
+    description: toolDescription(tool),
     parameters: Type.Unsafe(tool.parameters as Record<string, unknown>),
     execute: async (_id: string, params: unknown): Promise<AgentToolResult<unknown>> => {
       const result = await tool.execute(params);

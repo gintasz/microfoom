@@ -19,7 +19,14 @@ import {
 } from "./errors.js";
 import type { AgentEvent } from "./events.js";
 import type { LLMToken } from "./options.js";
-import { CONTROL_TOOLS } from "./protocol.js";
+import {
+  CONTROL_TOOL_DESCRIPTIONS,
+  CONTROL_TOOL_GUIDELINES,
+  CONTROL_TOOL_SNIPPETS,
+  CONTROL_TOOLS,
+  DEFAULT_THROW_CODE,
+  TOOL_RESULTS,
+} from "./protocol.js";
 import type {
   HarnessSession,
   JsonSchema,
@@ -28,7 +35,7 @@ import type {
   StreamEvent,
   ToolExecResult,
 } from "./session.js";
-import { formatIssues } from "./standard_schema.js";
+import { formatIssues, standardInputJsonSchema } from "./standard_schema.js";
 import { accountFromDelta, type UsageAccount } from "./usage.js";
 
 /** Per-run dispatch surface the coordinator needs (built by the program facade). */
@@ -45,7 +52,12 @@ export interface ProgramTurnContext {
     args: unknown,
   ) => Promise<readonly StandardSchemaV1.Issue[] | undefined>;
   /** Exposed methods advertised as their own native tool ({tool} tier). */
-  readonly toolTierMethods: ReadonlyArray<{ name: string; description: string }>;
+  readonly toolTierMethods: ReadonlyArray<{
+    name: string;
+    description: string;
+    promptSnippet?: string;
+    promptGuidelines?: readonly string[];
+  }>;
   /** Current nesting depth (for usage accounting). */
   readonly depth: () => number;
 }
@@ -116,11 +128,19 @@ function buildTurnTools(
 
   const dispatch = async (method: string, args: unknown): Promise<ToolExecResult> => {
     if (!ctx.isExposed(method)) {
-      return repairableThenMaybeStop(`Method "${method}" is not exposed.`);
+      return repairableThenMaybeStop(TOOL_RESULTS.notExposed(method));
     }
     const issues = await ctx.validateArgs(method, args);
     if (issues !== undefined) {
-      return repairableThenMaybeStop(`Invalid arguments: ${formatIssues(issues)}`);
+      // Show the expected schema alongside the issues so the model can correct in
+      // one repair instead of guessing (foom_call's `arguments` is generic, so the
+      // per-method schema isn't advertised upfront). Only when a schema exists.
+      const schema = ctx.paramSchema(method);
+      const detail =
+        schema !== undefined
+          ? `${formatIssues(issues)}. Expected schema: ${JSON.stringify(schema)}`
+          : formatIssues(issues);
+      return repairableThenMaybeStop(TOOL_RESULTS.invalidArguments(detail));
     }
     emitter.emit?.({ type: "foom_call", span: emitter.span, method });
     try {
@@ -129,12 +149,12 @@ function buildTurnTools(
       if (error instanceof FoomtimeThrowError) {
         capture.thrown = { message: error.message, code: error.code };
         capture.has = true;
-        return stop("Program raised an error.");
+        return stop(TOOL_RESULTS.raised);
       }
       if (error instanceof FoomtimeError) {
         capture.fatal = error;
         capture.has = true;
-        return stop("Program failed.");
+        return stop(TOOL_RESULTS.failed);
       }
       throw error;
     }
@@ -143,67 +163,83 @@ function buildTurnTools(
   const tools: NeutralToolDef[] = [
     {
       name: CONTROL_TOOLS.call,
-      description:
-        "Invoke an exposed program method by name. `arguments` is an object of its parameters.",
+      description: CONTROL_TOOL_DESCRIPTIONS[CONTROL_TOOLS.call],
+      promptSnippet: CONTROL_TOOL_SNIPPETS[CONTROL_TOOLS.call],
+      promptGuidelines: CONTROL_TOOL_GUIDELINES[CONTROL_TOOLS.call],
       parameters: objectSchema({ method: { type: "string" }, arguments: { type: "object" } }, [
         "method",
       ]),
       execute: async (args) => {
         const method = field(args, "method");
         if (typeof method !== "string")
-          return repairableThenMaybeStop("foom_call needs a string `method`.");
+          return repairableThenMaybeStop(
+            TOOL_RESULTS.invalidArguments("`method` must be a string"),
+          );
         return dispatch(method, field(args, "arguments") ?? {});
       },
     },
     {
       name: CONTROL_TOOLS.inspect,
-      description:
-        "Return the parameter schema of an exposed method so you can build a valid foom_call.",
+      description: CONTROL_TOOL_DESCRIPTIONS[CONTROL_TOOLS.inspect],
+      promptSnippet: CONTROL_TOOL_SNIPPETS[CONTROL_TOOLS.inspect],
+      promptGuidelines: CONTROL_TOOL_GUIDELINES[CONTROL_TOOLS.inspect],
       parameters: objectSchema({ method: { type: "string" } }, ["method"]),
       execute: async (args) => {
         const method = field(args, "method");
         if (typeof method !== "string")
-          return repairableThenMaybeStop("foom_inspect needs a string `method`.");
-        if (!ctx.isExposed(method))
-          return repairableThenMaybeStop(`Method "${method}" is not exposed.`);
+          return repairableThenMaybeStop(
+            TOOL_RESULTS.invalidArguments("`method` must be a string"),
+          );
+        if (!ctx.isExposed(method)) return repairableThenMaybeStop(TOOL_RESULTS.notExposed(method));
         return ok(JSON.stringify(ctx.paramSchema(method) ?? { type: "object" }));
       },
     },
     {
       name: CONTROL_TOOLS.throw,
-      description: "Abort the program with a deliberate error and a caller-defined code.",
+      description: CONTROL_TOOL_DESCRIPTIONS[CONTROL_TOOLS.throw],
+      promptSnippet: CONTROL_TOOL_SNIPPETS[CONTROL_TOOLS.throw],
+      promptGuidelines: CONTROL_TOOL_GUIDELINES[CONTROL_TOOLS.throw],
       parameters: objectSchema({ message: { type: "string" }, code: { type: "string" } }, [
         "message",
-        "code",
       ]),
       execute: async (args) => {
         const message = field(args, "message");
         const code = field(args, "code");
-        if (typeof message !== "string" || typeof code !== "string") {
-          return repairableThenMaybeStop("foom_throw needs string `message` and `code`.");
+        if (typeof message !== "string") {
+          return repairableThenMaybeStop(
+            TOOL_RESULTS.invalidArguments("`message` must be a string"),
+          );
         }
-        capture.thrown = { message, code };
+        if (code !== undefined && typeof code !== "string") {
+          return repairableThenMaybeStop(TOOL_RESULTS.invalidArguments("`code` must be a string"));
+        }
+        // `code` is optional: omitted → the default (FOOMTHROW always carries one, F7).
+        capture.thrown = { message, code: code ?? DEFAULT_THROW_CODE };
         capture.has = true;
-        return stop("Program raised an error.");
+        return stop(TOOL_RESULTS.raised);
       },
     },
   ];
 
   if (mode.kind === "value") {
     const schema = mode.schema;
+    // Advertise the expected return shape when the validator can produce one
+    // (Standard JSON Schema); otherwise leave it open and rely on repair.
+    const valueSchema = standardInputJsonSchema(schema) ?? {};
     tools.push({
       name: CONTROL_TOOLS.return,
-      description:
-        "Return the final structured result of this turn through the machine-readable channel.",
-      parameters: objectSchema({ value: {} }, ["value"]),
+      description: CONTROL_TOOL_DESCRIPTIONS[CONTROL_TOOLS.return],
+      promptSnippet: CONTROL_TOOL_SNIPPETS[CONTROL_TOOLS.return],
+      promptGuidelines: CONTROL_TOOL_GUIDELINES[CONTROL_TOOLS.return],
+      parameters: objectSchema({ value: valueSchema }, ["value"]),
       execute: async (args) => {
         const result = await Promise.resolve(schema["~standard"].validate(field(args, "value")));
         if (result.issues !== undefined) {
-          return repairableThenMaybeStop(`Invalid return value: ${formatIssues(result.issues)}`);
+          return repairableThenMaybeStop(TOOL_RESULTS.invalidReturn(formatIssues(result.issues)));
         }
         capture.value = result.value;
         capture.has = true;
-        return stop("Returned.");
+        return stop(TOOL_RESULTS.returned);
       },
     });
   }
@@ -212,6 +248,10 @@ function buildTurnTools(
     tools.push({
       name: method.name,
       description: method.description,
+      ...(method.promptSnippet !== undefined ? { promptSnippet: method.promptSnippet } : {}),
+      ...(method.promptGuidelines !== undefined
+        ? { promptGuidelines: method.promptGuidelines }
+        : {}),
       parameters: ctx.paramSchema(method.name) ?? { type: "object" },
       execute: (args) => dispatch(method.name, args),
     });
@@ -339,6 +379,6 @@ export async function runProgramTurn(params: RunTurnParams): Promise<TurnOutcome
       throw new FoomtimeReturnError("the agent produced no foom_return value");
     }
     emitter.emit?.({ type: "repair", span: emitter.span, attempt: attempt + 1 });
-    request.prompt = "You did not call foom_return. Call foom_return now with the final value.";
+    request.prompt = TOOL_RESULTS.missingReturn;
   }
 }
