@@ -3,10 +3,10 @@
 // Every failure is a subclass of FoomtimeError, discriminated by `instanceof`.
 //
 //   FoomtimeError                      base for all of the below
-//   ├─ FoomtimeThrowError              deliberate FOOMTHROW in a prompt; ALWAYS carries user `code`
+//   ├─ FoomtimeThrowError              deliberate `foom_throw` in a prompt; ALWAYS carries user `code`
 //   ├─ FoomtimeValidationError         repairable; catch-all for the three below (no `code`)
-//   │  ├─ FoomtimeArgError             bad FOOMCALL args
-//   │  ├─ FoomtimeReturnError          bad/missing FOOMRETURN
+//   │  ├─ FoomtimeArgError             bad `foom_call` args
+//   │  ├─ FoomtimeReturnError          bad/missing `foom_return`
 //   │  └─ FoomtimeDispatchError        unexposed/unknown method
 //   ├─ FoomtimeAbortError              run ended early
 //   │  ├─ FoomtimeTimeoutError         exceeded maxTurnDuration (turn) or maxProgramDuration (program)
@@ -39,8 +39,8 @@ export class FoomtimeError extends Error {
 }
 
 /**
- * Raised ONLY by a deliberate FOOMTHROW in a prompt. ALWAYS carries the
- * user-defined `code` from FOOMTHROW (the caller's namespace, e.g. "123" /
+ * Raised ONLY by a deliberate `foom_throw` in a prompt. ALWAYS carries the
+ * user-defined `code` from `foom_throw` (the caller's namespace, e.g. "123" /
  * "E_TOO_LOW"); it has no runtime meaning. Runtime-caught failures are
  * FoomtimeValidationError, NOT this — they have no `code`.
  */
@@ -58,9 +58,9 @@ export class FoomtimeThrowError extends FoomtimeError {
  * `code`; inspect `message` / `data`. All three count toward repairAttempts.
  */
 export class FoomtimeValidationError extends FoomtimeError {}
-/** Bad FOOMCALL args. */
+/** Bad `foom_call` args. */
 export class FoomtimeArgError extends FoomtimeValidationError {}
-/** Bad or missing FOOMRETURN. */
+/** Bad or missing `foom_return`. */
 export class FoomtimeReturnError extends FoomtimeValidationError {}
 /** Unexposed or unknown method. */
 export class FoomtimeDispatchError extends FoomtimeValidationError {}

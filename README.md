@@ -18,9 +18,9 @@ export default class extends Program<typeof Input, number>(Input) {
     // Prose channel — conversational text.
     await this.agent.text`Briefly explain ${input.topic}.`;
 
-    // Structured channel — schema-validated value via FOOMRETURN.
+    // Structured channel — schema-validated value via `foom_return`.
     return await this.agent.value(z.number().int())`
-      Pick a number between 0 and 100. FOOMRETURN it.
+      Pick a number between 0 and 100. `foom_return` it.
     `;
   }
 
@@ -37,10 +37,10 @@ export default class extends Program<typeof Input, number>(Input) {
 The agent reaches your program only through native function-calling, never parsed
 from text:
 
-- **FOOMCALL** — invoke an exposed method.
-- **FOOMRETURN** — return a structured value (validated against a Standard Schema).
-- **FOOMTHROW** — abort with a caller-defined error code.
-- **FOOMINSPECT** — read an exposed method's parameter schema.
+- **`foom_call`** — invoke an exposed method.
+- **`foom_return`** — return a structured value (validated against a Standard Schema).
+- **`foom_throw`** — abort with a caller-defined error code.
+- **`foom_inspect`** — read an exposed method's parameter schema.
 
 Exposed methods come in three tiers by context cost: silent (`@foom.expose`),
 announced (`{ announcement }`), and full native tool (`{ tool }`, parameters
@@ -71,7 +71,7 @@ import { createPiOpenSession } from "@microfoom/pi-adapter";
 const result = await runProgram(MyProgram, input, {
   openSession: createPiOpenSession(), // resolves model + auth from ~/.pi
   model: "openrouter/deepseek/deepseek-v4-flash",
-  sourceFile: "./my-program.ts", // enables FOOMCALL parameter derivation
+  sourceFile: "./my-program.ts", // enables `foom_call` parameter derivation
 });
 ```
 

@@ -19,18 +19,18 @@ the provider needs JSON Schema upfront?
 ### Control operations → native tools (F2)
 Four control ops are native tools whose semantics live in core (`tools.ts`) and
 are executed by the harness loop (ADR-0002), never parsed from text:
-- **FOOMCALL** — invoke an exposed method (by name + args). Generic tool for the
+- **`foom_call`** — invoke an exposed method (by name + args). Generic tool for the
   silent/announcement tiers; the `{ tool }` tier additionally gets its own native
   tool.
-- **FOOMRETURN** — terminal structured return; its value is validated against the
+- **`foom_return`** — terminal structured return; its value is validated against the
   call's Standard Schema (F4) and ends the turn.
-- **FOOMTHROW** — deliberate program error carrying a caller-defined `code`
+- **`foom_throw`** — deliberate program error carrying a caller-defined `code`
   (→ `FoomtimeThrowError`, F7).
-- **FOOMINSPECT** — returns an exposed method's parameter schema on demand.
+- **`foom_inspect`** — returns an exposed method's parameter schema on demand.
 
 ### Exposure tiers (F3) — agent-unreachable by default
-- bare `@foom.expose` — silent: reachable, not advertised; params via FOOMINSPECT.
-- `{ announcement }` — name+description in the system prompt; params via FOOMINSPECT.
+- bare `@foom.expose` — silent: reachable, not advertised; params via `foom_inspect`.
+- `{ announcement }` — name+description in the system prompt; params via `foom_inspect`.
 - `{ tool }` — own native tool with **full parameter schema upfront**.
 - `private`/`protected`/`#private` members can never be exposed (ast-grep + review).
 
@@ -40,7 +40,7 @@ bundled), so the TS parameter types are available at load. A load-time derivatio
 pass reads each exposed method's signature and produces a **JSON Schema**, used for:
 - the upfront advertisement of `{ tool }`-tier methods (mapped to the provider's
   schema type — typebox `TSchema` for pi-ai — in the harness adapter), and
-- FOOMINSPECT responses for all tiers.
+- `foom_inspect` responses for all tiers.
 
 Argument validation (F4) wraps the same derived JSON Schema as a `StandardSchemaV1`
 so "Standard Schema is the one validation contract" holds end-to-end; the author
@@ -48,7 +48,7 @@ never writes `parameters`. Derived schemas are cached per file (startup-latency
 note, not correctness). Return validation uses the caller-supplied Standard Schema
 from `value(schema)`.
 
-**Rejected alternatives:** FOOMINSPECT-only with no upfront schema (loses the
+**Rejected alternatives:** `foom_inspect`-only with no upfront schema (loses the
 `{ tool }` tier's upfront advertisement — the documented end state); requiring the
 author to attach a JSON-Schema-emitting validator (re-introduces an authored
 `parameters` and a concrete-validator lean, against F4).
@@ -60,4 +60,4 @@ using the TypeScript compiler API directly, so core gains a `typescript` runtime
 dependency. The pi harness maps the neutral JSON Schema to typebox (`Type.Unsafe`)
 for `pi-ai` tools. Erased-at-runtime TS types are recovered by a compiler pass at
 load; results are cached per file. `runProgram` therefore needs the program's
-`sourceFile` for FOOMCALL parameter derivation.
+`sourceFile` for `foom_call` parameter derivation.

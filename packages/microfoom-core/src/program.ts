@@ -140,7 +140,7 @@ export function Program<S extends StandardSchemaV1, R = unknown>(
 export interface RunProgramOptions {
   readonly openSession: OpenSession;
   readonly model: string;
-  /** Program source path — required for FOOMCALL parameter derivation (ADR-0003). */
+  /** Program source path — required for `foom_call` parameter derivation (ADR-0003). */
   readonly sourceFile?: string;
   /** Class name in the source file, for derivation. Defaults to the constructor name. */
   readonly className?: string;

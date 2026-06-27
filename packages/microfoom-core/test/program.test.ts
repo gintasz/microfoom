@@ -65,7 +65,7 @@ describe("program facade (end to end, faux session)", () => {
     expect(out).toBe("ok");
   });
 
-  it("dispatches a FOOMCALL into an exposed method (with derived schema)", async () => {
+  it("dispatches a foom_call into an exposed method (with derived schema)", async () => {
     const sourceFile = fileURLToPath(new URL("./fixtures/calc_program.ts", import.meta.url));
     const out = await runProgram(Calc, 21, {
       openSession: fakeOpenSession([
@@ -160,7 +160,7 @@ describe("program facade (end to end, faux session)", () => {
     expect(out).toBe(5);
   });
 
-  it("surfaces FOOMTHROW as a thrown FoomtimeThrowError carrying the code", async () => {
+  it("surfaces foom_throw as a thrown FoomtimeThrowError carrying the code", async () => {
     class Thrower extends Program<typeof stringInput, number>(stringInput) {
       async main(): Promise<number> {
         return await this.agent.value(numberSchema)`fail please`;

@@ -213,7 +213,7 @@ function buildTurnTools(
         if (code !== undefined && typeof code !== "string") {
           return repairableThenMaybeStop(TOOL_RESULTS.invalidArguments("`code` must be a string"));
         }
-        // `code` is optional: omitted → the default (FOOMTHROW always carries one, F7).
+        // `code` is optional: omitted → the default (`foom_throw` always carries one, F7).
         capture.thrown = { message, code: code ?? DEFAULT_THROW_CODE };
         capture.has = true;
         return stop(TOOL_RESULTS.raised);

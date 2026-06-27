@@ -1,4 +1,4 @@
-// Prompts are free prose for reasoning and instructions. To affect the program, the agent uses four control tools — FOOMCALL, FOOMRETURN, FOOMTHROW, FOOMINSPECT —
+// Prompts are free prose for reasoning and instructions. To affect the program, the agent uses four control tools — `foom_call`, `foom_return`, `foom_throw`, `foom_inspect` —
 // surfaced via native function-calling, not string-matched from output. Write the verbs however reads clearly; the agent invokes the underlying tool.
 
 // An agent turn produces one of two terminal outputs:
@@ -10,7 +10,7 @@
 //
 // 2. Structured return (.value)
 //    - machine-readable value
-//    - produced via FOOMRETURN
+//    - produced via `foom_return`
 //    - schema-validated against the expected TypeScript return type
 //    - used as the TypeScript value
 //
@@ -18,10 +18,10 @@
 // reach for different validators (Zod, or any other library),
 // so the API accepts any Standard Schema rather than committing to one.
 
-  // IMPL: a terminal FOOMRETURN leaves a dangling foom_return tool_use; if this session continues afterward, inject a synthetic tool_result ack to close it before the next turn, or the provider rejects the request.
+  // IMPL: a terminal `foom_return` leaves a dangling foom_return tool_use; if this session continues afterward, inject a synthetic tool_result ack to close it before the next turn, or the provider rejects the request.
 // Execution model: foomtime runs your script from source inside the harness
 // (transpile only — no bundling, no mangling), so identifiers are stable at
-// runtime. method.name, FOOMCALL dispatch by method name, and load-time param
+// runtime. method.name, `foom_call` dispatch by method name, and load-time param
 // derivation all rely on that and Just Work for /run. Minification only happens
 // if YOU bundle for deployment — only then do you need the optional foomtime
 // transform (see @foom.expose). /run never does.
@@ -59,8 +59,8 @@ type AgentConfig = {
   // never retry. 0 = no retry. Default: 2.
   retries?: number;
 
-  // Consecutive FoomtimeValidationError failures (bad FOOMCALL args, bad/missing
-  // FOOMRETURN, or unexposed/unknown method) allowed before
+  // Consecutive FoomtimeValidationError failures (bad `foom_call` args, bad/missing
+  // `foom_return`, or unexposed/unknown method) allowed before
   // FoomtimeRepairExhaustedError. All three count — re-prompting with the
   // available methods is itself a repair. Resets to 0 on any valid result. Scoped
   // to a single agent-run (one .text()/.value()), not the session.
@@ -254,8 +254,8 @@ type ResolvedAgentToolOptions = AgentToolOptions & {
 };
 
 // Three tiers by context cost, so each agent run advertises only what it needs:
-// @expose = silent (0 context, params via FOOMINSPECT) · { announcement } = name+desc
-// in the system prompt (params via FOOMINSPECT) · { tool } = native tool with full
+// @expose = silent (0 context, params via `foom_inspect`) · { announcement } = name+desc
+// in the system prompt (params via `foom_inspect`) · { tool } = native tool with full
 // param schema upfront. announcement and tool are different channels (prose vs native
 // tool primitive), not richer/poorer — pick by context budget.
 type AgentExposeOptions = {
@@ -415,10 +415,10 @@ type AgentProgramContext<TProgram extends object> = AgentRun & {
 // Error taxonomy. Convention: every class is `Foomtime<Thing>Error`.
 //
 //   FoomtimeError                      base for all of the below
-//   ├─ FoomtimeThrowError              deliberate FOOMTHROW in a prompt; ALWAYS carries user `code`
+//   ├─ FoomtimeThrowError              deliberate `foom_throw` in a prompt; ALWAYS carries user `code`
 //   ├─ FoomtimeValidationError         repairable; catch-all for the three below (no `code`)
-//   │  ├─ FoomtimeArgError             bad FOOMCALL args
-//   │  ├─ FoomtimeReturnError          bad/missing FOOMRETURN
+//   │  ├─ FoomtimeArgError             bad `foom_call` args
+//   │  ├─ FoomtimeReturnError          bad/missing `foom_return`
 //   │  └─ FoomtimeDispatchError        unexposed/unknown method
 //   ├─ FoomtimeAbortError              run ended early
 //   │  ├─ FoomtimeTimeoutError         exceeded `maxTurnDuration` (turn) or `maxProgramDuration` (program)
@@ -443,11 +443,11 @@ class FoomtimeError extends Error {
 }
 
 /**
- * Raised ONLY by a deliberate FOOMTHROW in a prompt — the agent's program
- * intentionally erroring. ALWAYS carries the user-defined `code` from FOOMTHROW
+ * Raised ONLY by a deliberate `foom_throw` in a prompt — the agent's program
+ * intentionally erroring. ALWAYS carries the user-defined `code` from `foom_throw`
  * (your namespace, e.g. "123" / "E_TOO_LOW"); it has no runtime meaning.
  *
- * Failures the runtime catches (bad FOOMCALL args, bad FOOMRETURN, unreachable
+ * Failures the runtime catches (bad `foom_call` args, bad `foom_return`, unreachable
  * or unknown method) are FoomtimeValidationError, NOT this — they have no
  * `code`. Budget/timeout/depth are their own subclasses. Discriminate with
  * instanceof.
@@ -469,8 +469,8 @@ class FoomtimeThrowError extends FoomtimeError {
  * (re-prompting with the available methods is itself a repair).
  */
 class FoomtimeValidationError extends FoomtimeError {}
-class FoomtimeArgError extends FoomtimeValidationError {}      // bad FOOMCALL args
-class FoomtimeReturnError extends FoomtimeValidationError {}   // bad/missing FOOMRETURN
+class FoomtimeArgError extends FoomtimeValidationError {}      // bad `foom_call` args
+class FoomtimeReturnError extends FoomtimeValidationError {}   // bad/missing `foom_return`
 class FoomtimeDispatchError extends FoomtimeValidationError {} // unexposed/unknown method
 
 class FoomtimeAbortError extends FoomtimeError {}              // run ended early
@@ -604,7 +604,7 @@ type Input = StandardSchemaV1.InferOutput<typeof Input>;
     maxBudgetUsd: 5
 })
 class MyProgram extends Program(Input) {
-    // Entrypoint. Not exposed, so the agent can never FOOMCALL it. `input` is
+    // Entrypoint. Not exposed, so the agent can never `foom_call` it. `input` is
     // typed via the named schema type — one word, no inline InferOutput.
     async main(input: Input)
     {
@@ -619,20 +619,20 @@ class MyProgram extends Program(Input) {
 
         // ------------------------------------------------------------
         // Basics: Return a value from the agent
-        // FOOMRETURN routes the value through the structured tool channel instead
+        // `foom_return` routes the value through the structured tool channel instead
         // of the chatty assistant message ("Sure! Here's 42..."). Schema sets the
-        // shape; FOOMRETURN picks the channel.
+        // shape; `foom_return` picks the channel.
         // ------------------------------------------------------------
         let random_number = await this.agent.value(z.number().int())`
             number = generate a random number between 0 and 100.
-            FOOMRETURN number   // structured channel — no prose yapping
+            `foom_return` number   // structured channel — no prose yapping
         `;
         console.log("Agent generated a random number as", random_number);
 
 
         // ------------------------------------------------------------
         // Basics: function call inside the agent
-        // FOOMCALL is a call into an exposed method, within the current turn.
+        // `foom_call` is a call into an exposed method, within the current turn.
         // Methods are UNREACHABLE by default. @foom.expose makes a method
         // reachable; without an announcement it is NOT advertised, so you must
         // explicitly instruct the agent to call it (as below).
@@ -640,14 +640,14 @@ class MyProgram extends Program(Input) {
         // Calling an unexposed or non-existent method yields the same error.
         // ------------------------------------------------------------
         await this.agent.text`
-            FOOMCALL basics_function_call with no arguments
+            `foom_call` basics_function_call with no arguments
         `;
 
         // Agent will throw an error for all these because it is unable to proceed further with the execution
         try {
             // basics_function_call_2 is not exposed
             await this.agent.text`
-                FOOMCALL basics_function_call_2 with no arguments
+                `foom_call` basics_function_call_2 with no arguments
             `;
         }
         catch (error) {
@@ -657,7 +657,7 @@ class MyProgram extends Program(Input) {
 
         try {
             await this.agent.text`
-                FOOMCALL private_demo_method with no arguments
+                `foom_call` private_demo_method with no arguments
             `;
         }
         catch (error) {
@@ -667,7 +667,7 @@ class MyProgram extends Program(Input) {
 
         try {
             await this.agent.text`
-                FOOMCALL protected_demo_method with no arguments
+                `foom_call` protected_demo_method with no arguments
             `;
         }
         catch (error) {
@@ -677,7 +677,7 @@ class MyProgram extends Program(Input) {
 
         try {
             await this.agent.text`
-                FOOMCALL secret_demo_method with no arguments
+                `foom_call` secret_demo_method with no arguments
             `;
         }
         catch (error) {
@@ -689,8 +689,8 @@ class MyProgram extends Program(Input) {
         // Basics: return value from a function call inside the agent
         // ------------------------------------------------------------
         let string_value = await this.agent.value(z.string())`
-            value = FOOMCALL basics_function_call_with_return_value with no arguments
-            FOOMRETURN value
+            value = `foom_call` basics_function_call_with_return_value with no arguments
+            `foom_return` value
         `;
         console.log("Agent returned a string value as", string_value);
 
@@ -702,20 +702,20 @@ class MyProgram extends Program(Input) {
         // in TS (real recursion/loops); use the agent only for the fuzzy parts.
         // ------------------------------------------------------------
         let result = await this.agent.value(z.number().int())`
-            value = FOOMCALL fac(n=5)
-            FOOMRETURN value
+            value = `foom_call` fac(n=5)
+            `foom_return` value
         `;
         console.log("Agent computed factorial of 5 as", result);
 
 
         // ------------------------------------------------------------
         // Basics: inspect argument types before calling
-        // FOOMINSPECT returns an exposed method's parameter schema, so the agent
-        // can check expected arg types before it builds a FOOMCALL.
+        // `foom_inspect` returns an exposed method's parameter schema, so the agent
+        // can check expected arg types before it builds a `foom_call`.
         // ------------------------------------------------------------
         await this.agent.text`
-            FOOMINSPECT generate_random_number
-            then FOOMCALL generate_random_number with valid arguments
+            `foom_inspect` generate_random_number
+            then `foom_call` generate_random_number with valid arguments
         `;
 
         // ------------------------------------------------------------
@@ -725,7 +725,7 @@ class MyProgram extends Program(Input) {
         // ------------------------------------------------------------
         try {
             await this.agent.text`
-                FOOMCALL fac(n="sam altman")
+                `foom_call` fac(n="sam altman")
             `;
         }
         catch (error) {
@@ -749,13 +749,13 @@ class MyProgram extends Program(Input) {
 
         // ------------------------------------------------------------
         // Basics: return value type-checking (3/3)
-        // this will throw an error because FOOMCALL fails and the agent is unable to continue execution
+        // this will throw an error because `foom_call` fails and the agent is unable to continue execution
         // ------------------------------------------------------------
         try {
             await this.agent.value(z.number().int())`
-                my number = FOOMCALL demo_function_invalid_return_value
+                my number = `foom_call` demo_function_invalid_return_value
                 my number ++;
-                FOOMRETURN my number
+                `foom_return` my number
             `;
         }
         catch (error) {
@@ -776,9 +776,9 @@ class MyProgram extends Program(Input) {
             maxTurnDuration: "1m",
             maxBudgetUsd: 0.5 // in USD
         }).value(z.number().int())`
-            FOOMCALL basics_function_call with no arguments
+            `foom_call` basics_function_call with no arguments
             my number ++;
-            FOOMRETURN my number
+            `foom_return` my number
         `;
 
         // ------------------------------------------------------------
@@ -786,13 +786,13 @@ class MyProgram extends Program(Input) {
         // ⚠ CAPABILITY DEMO, not idiomatic. For fan-out + sum, do it in TS:
         //   (await Promise.all(maxes.map(m => this.generate_random_number(0, m)))).reduce((a, b) => a + b, 0)
         // Driving parallelism/arithmetic through the LLM is the expensive, flaky way.
-        // The tool CAN batch FOOMCALLs in parallel — shown here only to demonstrate that.
+        // The tool CAN batch `foom_call`s in parallel — shown here only to demonstrate that.
         // ------------------------------------------------------------
         let sum = await this.agent.value(z.number().int())`
             max = {5, 50, 100}
-            do FOOMCALL generate_random_number(min=0, max= each of max) in parallel
+            do `foom_call` generate_random_number(min=0, max= each of max) in parallel
             value = sum all the values
-            FOOMRETURN value
+            `foom_return` value
         `;
         console.log("Agent generated random numbers and summed them up to", sum);
 
@@ -802,7 +802,7 @@ class MyProgram extends Program(Input) {
         const [prd, risks, testPlan] = await Promise.all([
             this.agent.value(z.string())`
               Write a short PRD for a ride-sharing app in 1 paragraph.
-              FOOMRETURN the PRD as markdown.
+              `foom_return` the PRD as markdown.
             `,
             this.agent.text`
               Identify top product and engineering risks for a ride-sharing app in 1 paragraph.
@@ -810,7 +810,7 @@ class MyProgram extends Program(Input) {
             `,
             this.agent.value(z.string())`
               Write a QA test plan for a ride-sharing app in 1 paragraph.
-              FOOMRETURN the test plan as markdown.
+              `foom_return` the test plan as markdown.
             `,
           ]);
         console.log(prd);
@@ -833,13 +833,13 @@ class MyProgram extends Program(Input) {
         let num = await chat.value(z.number().int())`
             ok, then do this:
             num = random number between 0 and ${rnd}.
-            FOOMRETURN num
+            `foom_return` num
         `;
         console.log("Agent generated a random number as", num);
 
         // ------------------------------------------------------------
         // Intermediate: custom error code handling
-        // ⚠ CAPABILITY DEMO, not idiomatic. Branch in TS (if (rnd < 50) ...). FOOMTHROW
+        // ⚠ CAPABILITY DEMO, not idiomatic. Branch in TS (if (rnd < 50) ...). `foom_throw`
         // is for errors the agent raises from genuinely fuzzy reasoning, not for
         // deterministic conditionals you could write in TS.
         // ------------------------------------------------------------
@@ -848,13 +848,13 @@ class MyProgram extends Program(Input) {
             await this.agent.value(z.number().int())`
                 number = ${rnd}
                 if number < 50:
-                    FOOMTHROW "Error message 1" with code "123"
+                    `foom_throw` "Error message 1" with code "123"
                 else:
-                    FOOMTHROW "Error message 2" with code "456"
+                    `foom_throw` "Error message 2" with code "456"
             `;
         }
         catch (error) {
-            // `code` lives only on FoomtimeThrowError — your FOOMTHROW codes.
+            // `code` lives only on FoomtimeThrowError — your `foom_throw` codes.
             if (error instanceof FoomtimeThrowError) {
                 if (error.code === "123") {
                     console.error("Random number was less than 50");
@@ -880,11 +880,11 @@ class MyProgram extends Program(Input) {
         // Advanced: spawn a subagent via an exposed method (no special primitive)
         // "Subagent" is not a control primitive — it's ordinary library code: an
         // exposed method that loads a prompt from a file and runs a one-shot
-        // (stateless) turn. The agent reaches it with a normal FOOMCALL.
+        // (stateless) turn. The agent reaches it with a normal `foom_call`.
         // ------------------------------------------------------------
         await this.agent.text`
             Write a prompt asking for a random number between 0 and 100 to "/tmp/subagent_prompt.txt",
-            then FOOMCALL launch_subagent_from_prompt_file(path="/tmp/subagent_prompt.txt").
+            then `foom_call` launch_subagent_from_prompt_file(path="/tmp/subagent_prompt.txt").
             Tell me the number the subagent produced.
         `;
 
@@ -949,7 +949,7 @@ class MyProgram extends Program(Input) {
         const routes = ["/login", "/signup", "/reset"];
         const findings = await Promise.all(
             routes.map((route) => audit.with({ label: route }).value(z.string())`
-                Audit ${route} for missing auth. FOOMRETURN a one-line finding.
+                Audit ${route} for missing auth. `foom_return` a one-line finding.
             `)
         );
         audit.log(`${findings.length} routes audited`);
@@ -1011,7 +1011,7 @@ class MyProgram extends Program(Input) {
         }
         else {
             return await this.agent.value(z.string())`
-                FOOMRETURN "Hello, world from agent!"
+                `foom_return` "Hello, world from agent!"
             `;
         }
     }
@@ -1032,7 +1032,7 @@ class MyProgram extends Program(Input) {
     async demo_function_invalid_return_value(): Promise<number> {
         // Notice the return type is int, but the agent is commanded to return a string
         return await this.agent.value(z.number().int())`
-            FOOMRETURN "Hello, world!"
+            `foom_return` "Hello, world!"
         `;
     }
 
@@ -1043,10 +1043,10 @@ class MyProgram extends Program(Input) {
     async fac(n: number): Promise<number> {
         return await this.agent.value(z.number().int())`
             if ${n} is 0:
-                FOOMRETURN 1
+                `foom_return` 1
             else:
-                result = FOOMCALL fac(n = ${n - 1})
-                FOOMRETURN ${n} * result
+                result = `foom_call` fac(n = ${n - 1})
+                `foom_return` ${n} * result
         `;
     }
 

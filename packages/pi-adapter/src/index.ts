@@ -252,7 +252,7 @@ export function createPiOpenSession(options: PiSessionOptions = {}): OpenSession
             // pi-agent-core encodes request/model/network failure as a stopReason
             // "error" message (the loop resolves, never throws). Surface it as a
             // harness failure so the run reports it instead of masking it as a
-            // missing FOOMRETURN.
+            // missing `foom_return`.
             if (message.stopReason === "error") {
               throw new FoomtimeHarnessUnavailableError(message.errorMessage ?? "model error");
             }

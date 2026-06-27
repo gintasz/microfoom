@@ -16,7 +16,7 @@ export interface ToolExecResult {
   readonly content: string;
   /** Whether this result is an error (the model should correct — repair). */
   readonly isError: boolean;
-  /** When true, the turn should stop after this tool (a terminal FOOMRETURN/THROW). */
+  /** When true, the turn should stop after this tool (a terminal `foom_return`/`foom_throw`). */
   readonly terminate?: boolean;
 }
 

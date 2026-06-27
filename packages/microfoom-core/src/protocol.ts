@@ -21,8 +21,8 @@ export function isControlTool(name: string): name is ControlToolName {
   return CONTROL_TOOL_NAMES.has(name);
 }
 
-/** Code stamped on a FOOMTHROW when the agent omits one (foom_throw `code` is
- *  optional). FOOMTHROW still always carries a code (F7) — this is the fallback. */
+/** Code stamped on a `foom_throw` when the agent omits one (`foom_throw` `code`
+ *  is optional). `foom_throw` still always carries a code (F7) — this is the fallback. */
 export const DEFAULT_THROW_CODE = "error_unspecified";
 
 /**
