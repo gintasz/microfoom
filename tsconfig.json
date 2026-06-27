@@ -1,14 +1,4 @@
 {
   "files": [],
-  "references": [
-    {
-      "path": "./packages/thoughtcode-core"
-    },
-    {
-      "path": "./packages/pi-thoughtcode"
-    },
-    {
-      "path": "./packages/thoughtcode-cli"
-    }
-  ]
+  "references": [{ "path": "./packages/microfoom-core" }, { "path": "./packages/pi-microfoom" }]
 }

@@ -1,0 +1,24 @@
+# Definition-of-Done gate run locally (V1/DOD). Mirrors CI so red never reaches
+# the remote.
+pre-commit:
+  parallel: true
+  commands:
+    format:
+      glob: "*.{ts,js,json,md}"
+      run: pnpm exec biome check --error-on-warnings {staged_files}
+    typecheck:
+      run: pnpm run typecheck
+    spell:
+      run: pnpm exec cspell --no-progress --no-must-find-files {staged_files}
+
+pre-push:
+  parallel: false
+  commands:
+    arch:
+      run: pnpm run arch
+    deps:
+      run: pnpm run deps:check
+    dead:
+      run: pnpm run dead
+    test:
+      run: pnpm run test

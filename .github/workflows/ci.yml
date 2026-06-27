@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run typecheck
+      - run: pnpm run format:check
+      - run: pnpm run lint
+      - run: pnpm run build
+      - run: pnpm run arch
+      - run: pnpm run ast
+      - run: pnpm run spell
+      - run: pnpm run deps:check
+      - run: pnpm run dead
+      - run: pnpm run dup
+      - run: pnpm run test
+      # e2e (real-LLM) runs separately; it skips, not fails, on provider/auth
+      # errors (Q2) and needs model credentials, so it is not a merge gate here.

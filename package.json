@@ -1,23 +1,54 @@
 {
-  "name": "thoughtcode",
+  "name": "microfoom",
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "workspaces": [
-    "packages/*"
-  ],
+  "packageManager": "pnpm@10.14.0",
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "build": "tsc -b",
     "clean": "tsc -b --clean",
-    "test": "npm run build && vitest run --exclude '**/e2e.test.ts'",
-    "test:e2e": "npm run build && vitest run e2e.test",
-    "test:all": "npm run build && vitest run",
-    "typecheck": "tsc -b --pretty false"
+    "typecheck": "tsc -b --pretty false",
+    "test": "vitest run --exclude '**/e2e.test.ts'",
+    "test:e2e": "vitest run e2e.test",
+    "test:all": "vitest run",
+    "format": "biome format --write .",
+    "format:check": "biome format .",
+    "lint": "biome check --error-on-warnings .",
+    "lint:fix": "biome check --write .",
+    "arch": "depcruise packages --config .dependency-cruiser.cjs",
+    "ast": "ast-grep scan",
+    "spell": "cspell --no-progress \"**/*.{ts,md,json}\"",
+    "deps:check": "syncpack lint",
+    "deps:fix": "syncpack fix",
+    "dead": "knip",
+    "dup": "jscpd packages",
+    "api": "pnpm -r --if-present run api",
+    "example": "node --import tsx examples/run.ts",
+    "check": "pnpm run typecheck && pnpm run format:check && pnpm run lint && pnpm run arch && pnpm run ast && pnpm run spell && pnpm run deps:check && pnpm run dead && pnpm run dup && pnpm run build && pnpm run test",
+    "prepare": "lefthook install"
   },
   "devDependencies": {
-    "@earendil-works/pi-ai": "0.79.9",
+    "@ast-grep/cli": "0.44.0",
+    "@biomejs/biome": "2.5.1",
+    "@microfoom/core": "workspace:*",
+    "@microfoom/pi": "workspace:*",
+    "@microsoft/api-extractor": "7.58.9",
+    "@swc/core": "1.15.43",
+    "@total-typescript/ts-reset": "0.6.1",
     "@types/node": "24.13.2",
+    "cspell": "10.0.1",
+    "dependency-cruiser": "18.0.0",
+    "fast-check": "4.8.0",
+    "jscpd": "5.0.11",
+    "knip": "6.21.0",
+    "lefthook": "2.1.9",
+    "syncpack": "15.3.2",
+    "tsx": "4.22.4",
     "typescript": "5.9.3",
+    "unplugin-swc": "1.5.9",
     "vitest": "4.1.8"
   }
 }

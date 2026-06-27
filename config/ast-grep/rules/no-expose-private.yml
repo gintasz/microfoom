@@ -1,0 +1,14 @@
+id: no-expose-private
+language: typescript
+severity: error
+message: "Private/protected members can never be exposed to the agent (F3). Remove @foom.expose or the access modifier."
+files:
+  - "packages/**/src/**/*.ts"
+rule:
+  kind: method_definition
+  has:
+    kind: accessibility_modifier
+    regex: "private|protected"
+  follows:
+    kind: decorator
+    regex: "foom\\.expose"
