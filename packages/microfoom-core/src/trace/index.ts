@@ -151,7 +151,9 @@ function freeze(node: MutableNode): RunNode {
     foomCalls: node.foomCalls,
     repairs: node.repairs,
     children,
-    settled: node.settled,
+    // A scope is a grouping handle with no end event of its own; it is "settled"
+    // by virtue of the run completing, so it never shows as in-flight.
+    settled: node.settled || node.kind === "scope",
   };
 }
 

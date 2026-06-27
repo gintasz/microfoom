@@ -371,7 +371,15 @@ interface SessionSource {
   readonly guard?: { inFlight: boolean };
 }
 
-function makeRun(runtime: Runtime, options: AgentOptions, source: SessionSource): AgentRun {
+// `parentSpan` pins this channel's turns under a specific span (a scope's own
+// span). When absent, the parent is taken from the call-structure (AsyncLocalStorage)
+// — the right default for `this.agent` turns inside main or a method.
+function makeRun(
+  runtime: Runtime,
+  options: AgentOptions,
+  source: SessionSource,
+  parentSpan?: string,
+): AgentRun {
   const begin = () => {
     if (source.guard !== undefined) {
       if (source.guard.inFlight)
@@ -395,7 +403,7 @@ function makeRun(runtime: Runtime, options: AgentOptions, source: SessionSource)
     // A turn is a span leaf: its usage is the real harness delta(s) folded here.
     let turnDelta = emptyUsage;
     if (traced) {
-      const parent = runtime.spanALS.getStore();
+      const parent = parentSpan ?? runtime.spanALS.getStore();
       emitAll(runtime, {
         type: "span_start",
         span,
@@ -534,18 +542,33 @@ function makeScope(
   options: AgentOptions,
   name: string,
   spanId: string,
+  parentSpan?: string,
 ): AgentScope {
-  if (runtime.listeners.size > 0) emitAll(runtime, { type: "span_start", span: spanId, name });
+  if (runtime.listeners.size > 0) {
+    // Parent the scope under the enclosing span: a nested scope passes it
+    // explicitly; a top-level scope() reads the live call-structure (main/method).
+    const parent = parentSpan ?? runtime.spanALS.getStore();
+    emitAll(runtime, {
+      type: "span_start",
+      span: spanId,
+      name,
+      kind: "scope",
+      ...(parent !== undefined ? { parent } : {}),
+    });
+  }
+  // Turns on this scope (and `.with({ label })` variants) nest under the scope's
+  // own span; a per-call label overrides the scope name on the turn row.
   const run = makeRun(
     runtime,
-    { ...options, label: name },
+    { ...options, label: options.label ?? name },
     statelessSource(runtime, optionsModel(runtime, options)),
+    spanId,
   );
   return {
     text: run.text,
     value: run.value,
-    with: (extra) => makeScope(runtime, { ...options, ...extra }, name, spanId),
-    scope: (child) => makeScope(runtime, options, child, runtime.nextSpan()),
+    with: (extra) => makeScope(runtime, { ...options, ...extra }, name, spanId, parentSpan),
+    scope: (child) => makeScope(runtime, options, child, runtime.nextSpan(), spanId),
     annotate: (attributes) => emitAll(runtime, { type: "annotate", span: spanId, attributes }),
     log: (message, level = "info") =>
       emitAll(runtime, { type: "log", span: spanId, message, level }),

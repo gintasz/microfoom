@@ -69,11 +69,12 @@ function renderNode(
     color ? `${leftOut}${" ".repeat(gap)}${rightOut}` : `${leftFit}${" ".repeat(gap)}${right}`,
   );
 
+  for (const child of node.children) renderNode(child, depth + 1, width, color, out);
+  // Log lines render after children, matching how the events landed in time.
   for (const log of node.logs) {
     const line = `${indent}   • ${log.message}`;
     out.push(color && log.level !== "info" ? pc.dim(line) : line);
   }
-  for (const child of node.children) renderNode(child, depth + 1, width, color, out);
 }
 
 /** Render a run tree snapshot to a panel string. */
