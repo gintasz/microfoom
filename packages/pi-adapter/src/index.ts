@@ -210,59 +210,69 @@ export function createPiOpenSession(options: PiSessionOptions = {}): OpenSession
 
     // One Agent per session: reusing it across runTurn calls preserves the pi
     // transcript, so a microfoom session() is a continued conversation. Stateless
-    // this.agent turns open a fresh session (fresh Agent) each time.
-    let agent: Agent | undefined;
-
-    const session: HarnessSession = {
-      async runTurn(request: SessionTurnRequest): Promise<SessionTurnResult> {
-        const thinkingLevel: ThinkingLevel =
-          request.thinking !== undefined && PI_THINKING.has(request.thinking)
-            ? (request.thinking as ThinkingLevel)
-            : "off";
-        const tools = request.tools.map(toAgentTool);
-        if (agent === undefined) {
-          agent = new Agent({
-            initialState: { systemPrompt: request.systemPrompt, model, thinkingLevel, tools },
-            streamFn: runtime.streamFn,
-            convertToLlm: (messages: AgentMessage[]) =>
-              messages.filter(
-                (message): message is Message =>
-                  message.role === "user" ||
-                  message.role === "assistant" ||
-                  message.role === "toolResult",
-              ),
-          });
-        } else {
-          agent.state.systemPrompt = request.systemPrompt;
-          agent.state.thinkingLevel = thinkingLevel;
-          agent.state.tools = tools;
-        }
-
-        const before = agent.state.messages.length;
-        await agent.prompt(request.prompt);
-        logTurn(logFile, model.id, request, agent.state.messages.slice(before), tools);
-
-        // Usage + text for THIS turn only — the messages appended by this prompt.
-        let text = "";
-        let usage: UsageDelta = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
-        const messages = agent.state.messages;
-        for (let index = before; index < messages.length; index += 1) {
-          const message = messages[index];
-          if (message?.role === "assistant") {
-            // pi-agent-core encodes request/model/network failure as a stopReason
-            // "error" message (the loop resolves, never throws). Surface it as a
-            // harness failure so the run reports it instead of masking it as a
-            // missing `foom_return`.
-            if (message.stopReason === "error") {
-              throw new FoomtimeHarnessUnavailableError(message.errorMessage ?? "model error");
-            }
-            text = assistantText(message);
-            usage = addUsage(usage, message.usage);
+    // this.agent turns open a fresh session (fresh Agent) each time. A session
+    // seeded with prior messages is a fork() branch (see below).
+    const makeHarnessSession = (seed?: readonly AgentMessage[]): HarnessSession => {
+      let agent: Agent | undefined;
+      return {
+        async runTurn(request: SessionTurnRequest): Promise<SessionTurnResult> {
+          const thinkingLevel: ThinkingLevel =
+            request.thinking !== undefined && PI_THINKING.has(request.thinking)
+              ? (request.thinking as ThinkingLevel)
+              : "off";
+          const tools = request.tools.map(toAgentTool);
+          if (agent === undefined) {
+            agent = new Agent({
+              initialState: { systemPrompt: request.systemPrompt, model, thinkingLevel, tools },
+              streamFn: runtime.streamFn,
+              convertToLlm: (messages: AgentMessage[]) =>
+                messages.filter(
+                  (message): message is Message =>
+                    message.role === "user" ||
+                    message.role === "assistant" ||
+                    message.role === "toolResult",
+                ),
+            });
+            // Branch seed: continue from a copy of the parent transcript (fork()).
+            if (seed !== undefined) agent.state.messages = [...seed];
+          } else {
+            agent.state.systemPrompt = request.systemPrompt;
+            agent.state.thinkingLevel = thinkingLevel;
+            agent.state.tools = tools;
           }
-        }
-        return { assistantText: text, usage };
-      },
+
+          const before = agent.state.messages.length;
+          await agent.prompt(request.prompt);
+          logTurn(logFile, model.id, request, agent.state.messages.slice(before), tools);
+
+          // Usage + text for THIS turn only — the messages appended by this prompt.
+          let text = "";
+          let usage: UsageDelta = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+          const messages = agent.state.messages;
+          for (let index = before; index < messages.length; index += 1) {
+            const message = messages[index];
+            if (message?.role === "assistant") {
+              // pi-agent-core encodes request/model/network failure as a stopReason
+              // "error" message (the loop resolves, never throws). Surface it as a
+              // harness failure so the run reports it instead of masking it as a
+              // missing `foom_return`.
+              if (message.stopReason === "error") {
+                throw new FoomtimeHarnessUnavailableError(message.errorMessage ?? "model error");
+              }
+              text = assistantText(message);
+              usage = addUsage(usage, message.usage);
+            }
+          }
+          return { assistantText: text, usage };
+        },
+        // Branch: a new pi session seeded with a COPY of the transcript so far (or
+        // the inherited seed when no turn has run yet), diverging independently.
+        fork(): HarnessSession {
+          const transcript = agent !== undefined ? agent.state.messages : (seed ?? []);
+          return makeHarnessSession([...transcript]);
+        },
+      };
     };
-    return session;
+    return makeHarnessSession();
   };
 }

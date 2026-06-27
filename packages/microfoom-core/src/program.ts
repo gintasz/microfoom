@@ -37,8 +37,6 @@ import {
   type UsageAccount,
 } from "./usage.js";
 
-// ─── Public surface types (mirrors docs/design/api-sketch.ts) ────────────────
-
 /** A streaming text turn from a template literal. */
 export type AgentTextTemplate = (
   strings: TemplateStringsArray,
@@ -543,29 +541,63 @@ function statelessSource(runtime: Runtime, model: string, options: AgentOptions)
   };
 }
 
-function makeSession(runtime: Runtime, options: AgentOptions): AgentSession {
-  const model = optionsModel(runtime, options);
-  // A session is one provider thread bound to one harness; resolve it once at
-  // open (a session never switches harness mid-conversation).
-  const port = harnessPort(runtime, optionsHarness(runtime, options));
+// A lazily-opened, single-flight session source over one harness session: the
+// underlying session opens on first use and is reused across turns (continued
+// transcript). `.with()` handles share this source (and its guard); `.fork()`
+// builds a fresh source over a branched session.
+function makeSource(open: () => Promise<HarnessSession>): SessionSource {
   let opened: Promise<HarnessSession> | undefined;
-  const source: SessionSource = {
+  return {
     get: () => {
-      opened ??= Promise.resolve(port({ model }));
+      opened ??= open();
       return opened;
     },
     guard: { inFlight: false },
   };
+}
+
+function sessionHandle(
+  runtime: Runtime,
+  options: AgentOptions,
+  source: SessionSource,
+): AgentSession {
   const run = makeRun(runtime, options, source);
   return {
     text: run.text,
     value: run.value,
-    with: (extra) => makeSession(runtime, { ...options, ...extra }),
-    fork: () => makeSession(runtime, options),
+    // Same transcript, options layered: share the source (and its single-flight guard).
+    with: (extra) => sessionHandle(runtime, { ...options, ...extra }, source),
+    // Branch the transcript into an independent session. Resolved on the fork's
+    // first turn from the parent's transcript as it then stands; an unsupported
+    // harness surfaces FoomtimeConfigError.
+    fork: () =>
+      sessionHandle(
+        runtime,
+        options,
+        makeSource(async () => {
+          const parent = await source.get();
+          if (parent.fork === undefined) {
+            throw new FoomtimeConfigError("the active harness does not support session fork()");
+          }
+          return parent.fork();
+        }),
+      ),
     get usage() {
       return readUsage(runtime);
     },
   };
+}
+
+function makeSession(runtime: Runtime, options: AgentOptions): AgentSession {
+  const model = optionsModel(runtime, options);
+  // A session is one provider thread bound to one harness; resolve both once at
+  // creation (a session never switches harness mid-conversation).
+  const port = harnessPort(runtime, optionsHarness(runtime, options));
+  return sessionHandle(
+    runtime,
+    options,
+    makeSource(() => Promise.resolve(port({ model }))),
+  );
 }
 
 function optionsModel(runtime: Runtime, options: AgentOptions): string {

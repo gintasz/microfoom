@@ -57,4 +57,23 @@ describe("pi harness session via faux provider (deterministic)", () => {
     const out = await runProgram(Picker, "x", { harnesses: { pi: openSession }, model });
     expect(out).toBe(7);
   });
+
+  it("fork() yields an independent working session branched from the parent", async () => {
+    // One provider, two scripted responses consumed in order: the base turn takes
+    // the first, the forked branch's turn takes the second — proving fork() returns
+    // a usable pi session (its own Agent) that continues driving the model.
+    const { openSession, model } = harnessFor([
+      fauxAssistantMessage("from base"),
+      fauxAssistantMessage("from fork"),
+    ]);
+    class P extends Program<typeof stringSchema, string>(stringSchema) {
+      async main(): Promise<string> {
+        const base = this.agent.session();
+        await base.text`start`;
+        return await base.fork().text`continue`;
+      }
+    }
+    const out = await runProgram(P, "x", { harnesses: { pi: openSession }, model });
+    expect(out).toBe("from fork");
+  });
 });

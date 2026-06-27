@@ -309,6 +309,7 @@ export class FoomtimeValidationError extends FoomtimeError {
 
 // @public
 export interface HarnessSession {
+    fork?(): HarnessSession;
     // (undocumented)
     runTurn(request: SessionTurnRequest): Promise<SessionTurnResult>;
 }

@@ -77,6 +77,13 @@ export interface SessionTurnResult {
  */
 export interface HarnessSession {
   runTurn(request: SessionTurnRequest): Promise<SessionTurnResult>;
+  /**
+   * Branch this session: return a NEW session seeded with a copy of the current
+   * transcript, diverging independently from here (backs AgentSession.fork()).
+   * Optional — a harness that can't clone its conversation state omits it, and
+   * core's fork() then throws FoomtimeConfigError.
+   */
+  fork?(): HarnessSession;
 }
 
 /** A harness opens one session per program run, given the run's model + caps. */

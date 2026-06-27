@@ -10,6 +10,7 @@ import type { StandardSchemaV1 } from "@standard-schema/spec";
 import {
   FoomtimeBudgetExceededError,
   FoomtimeCallDepthError,
+  FoomtimeConfigError,
   FoomtimeError,
   FoomtimeRepairExhaustedError,
   FoomtimeReturnError,
@@ -279,8 +280,11 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 function enforceCaps(caps: ResolvedCaps, usage: UsageAccount): void {
   if (caps.maxBudgetUsd !== undefined) {
     if (usage.costUsd === undefined) {
-      throw new FoomtimeBudgetExceededError(
-        "maxBudgetUsd is set but the model cost is underivable",
+      // The cap is unenforceable, not exceeded — a misconfiguration (no pricing for
+      // this model), surfaced the moment usage is known rather than silently never
+      // enforcing it (a cost/security footgun).
+      throw new FoomtimeConfigError(
+        "maxBudgetUsd is set but the model cost is underivable (no pricing) — the cap cannot be enforced",
       );
     }
     if (usage.costUsd > caps.maxBudgetUsd) {

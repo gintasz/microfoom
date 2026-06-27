@@ -81,4 +81,3 @@ pnpm run test:e2e  # real-LLM diagnostics (needs model auth in ~/.pi; skips othe
 
 Repo-level decisions live in [`CONSTITUTION.md`](./CONSTITUTION.md); significant
 choices are recorded as ADRs in [`docs/adr`](./docs/adr). The full consumer-facing
-API design is sketched in [`docs/design/api-sketch.ts`](./docs/design/api-sketch.ts).
