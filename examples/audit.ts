@@ -34,8 +34,8 @@ const line = makeStandardSchema<string>((input) =>
 })
 export default class Audit extends Program<typeof site, string>(site) {
   async main(target: string): Promise<string> {
-    // 1) A plain sequential turn.
-    const intro = await this.agent.value(line)`
+    // 1) A plain sequential turn. `.with({ label })` names its row in the panel.
+    const intro = await this.agent.with({ label: "intro" }).value(line)`
       One short sentence introducing a security audit of ${target}.
       Respond ONLY with the foom_return tool call carrying that sentence.
     `;
@@ -65,13 +65,13 @@ export default class Audit extends Program<typeof site, string>(site) {
 
     // 3) A turn that asks the agent to call an exposed method (a foom_call → its
     // own method span in the tree), then return a string verdict.
-    const verdict = await this.agent.value(line)`
+    const verdict = await this.agent.with({ label: "verdict" }).value(line)`
       Call score with findingCount=${findings.length} to get a numeric risk score,
       then foom_return a one-line verdict that includes that score.
     `;
 
     // 4) A final streamed text turn that composes the report.
-    return await this.agent.text`
+    return await this.agent.with({ label: "summary" }).text`
       Write a two-sentence security audit summary for ${target}.
       Intro: ${intro}
       Findings: ${[...findings, recheck].join(" | ")}
