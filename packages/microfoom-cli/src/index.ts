@@ -1,8 +1,8 @@
 // Public surface of @microfoom/cli (programmatic reuse). The bin is `cli.ts`; the
-// renderer, panel, loader and faux session are exported so other frontends/tests
+// renderer, panel, loader and fake session are exported so other frontends/tests
 // can reuse them. Re-exports are explicit (no `export *`).
 
-export { fauxOpenSession } from "./faux.js";
+export { fakeOpenSession } from "./fake.js";
 export {
   fmtCost,
   fmtDuration,

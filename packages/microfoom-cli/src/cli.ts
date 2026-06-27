@@ -6,17 +6,25 @@
 // (clean, pipeable, --json for machines); all observability goes to STDERR.
 //
 // Modes: interactive TTY → live panel by default; piped/redirected → auto-headless
-// (no ANSI). Force with --panel / --headless. --faux runs offline (no model).
+// (no ANSI). Force with --panel / --headless. `--harness fake` runs offline (no model).
 
 import { isAbsolute, resolve } from "node:path";
 import { parseArgs } from "node:util";
-import { runProgram } from "@microfoom/core";
+import { type OpenSession, runProgram } from "@microfoom/core";
 import { type AgentEvent, buildRunTree } from "@microfoom/core/trace";
 import { createPiOpenSession } from "@microfoom/pi-adapter";
-import { fauxOpenSession } from "./faux.js";
+import { fakeOpenSession } from "./fake.js";
 import { fmtSummary } from "./format.js";
 import { loadProgram } from "./loader.js";
 import { attachPanel } from "./panel.js";
+
+// Selectable harnesses (composition root — the one place names map to adapters).
+// Add new harness support here; the program then runs on `--harness <name>`.
+const HARNESSES: Record<string, () => OpenSession> = {
+  pi: createPiOpenSession,
+  fake: fakeOpenSession,
+};
+const DEFAULT_HARNESS = "pi";
 
 const HELP = `microfoom — run a microfoom program file
 
@@ -25,6 +33,7 @@ Usage:
   microfoom <file> [input]            'run' is optional
 
 Options:
+  --harness <name>    harness to run on: pi (default) | fake (offline stub, no model)
   --model <id>        model id (default: $MICROFOOM_MODEL or a deepseek default)
   --thinking <level>  off | minimal | low | medium | high | xhigh
   --input <value>     program input (alternative to the positional)
@@ -32,7 +41,6 @@ Options:
   --headless          no panel, no ANSI — result only (integrations, CI)
   --json              print the result as JSON to stdout (implies quiet)
   --quiet             suppress the stderr summary footer
-  --faux              run offline with a deterministic stub session (no model)
   -h, --help          show this help
 
 Output: result → stdout; run panel + summary → stderr.
@@ -59,6 +67,7 @@ async function run(): Promise<number> {
   const { values, positionals } = parseArgs({
     allowPositionals: true,
     options: {
+      harness: { type: "string" },
       model: { type: "string" },
       thinking: { type: "string" },
       input: { type: "string" },
@@ -66,7 +75,6 @@ async function run(): Promise<number> {
       headless: { type: "boolean", default: false },
       json: { type: "boolean", default: false },
       quiet: { type: "boolean", default: false },
-      faux: { type: "boolean", default: false },
       help: { type: "boolean", short: "h", default: false },
     },
   });
@@ -93,7 +101,15 @@ async function run(): Promise<number> {
   const usePanel = values.panel || (!values.headless && interactive);
 
   const ProgramClass = await loadProgram(sourceFile);
-  const openSession = values.faux ? fauxOpenSession() : createPiOpenSession();
+  const harnessName = values.harness ?? DEFAULT_HARNESS;
+  const makeHarness = HARNESSES[harnessName];
+  if (makeHarness === undefined) {
+    process.stderr.write(
+      `microfoom: unknown harness "${harnessName}" (known: ${Object.keys(HARNESSES).join(", ")})\n`,
+    );
+    return 1;
+  }
+  const openSession = makeHarness();
 
   const events: AgentEvent[] = [];
   const panel = usePanel ? attachPanel(process.stderr) : undefined;
@@ -104,7 +120,7 @@ async function run(): Promise<number> {
 
   try {
     const result = await runProgram(ProgramClass, input, {
-      openSession,
+      harnesses: { [harnessName]: openSession },
       model,
       sourceFile,
       onEvent,

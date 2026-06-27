@@ -9,7 +9,7 @@ const who = process.argv[2] ?? "world";
 const model = process.env.MICROFOOM_MODEL ?? "openrouter/deepseek/deepseek-v4-flash";
 
 const result = await runProgram(Hello, who, {
-  openSession: createPiOpenSession(),
+  harnesses: { pi: createPiOpenSession() },
   model,
 });
 

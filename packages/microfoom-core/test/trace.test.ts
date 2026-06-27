@@ -2,7 +2,7 @@ import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { describe, expect, it } from "vitest";
 import { CONTROL_TOOLS, Program, runProgram } from "../src/index.ts";
 import { makeStandardSchema } from "../src/standard_schema.ts";
-import { fakeOpenSession } from "./fake_session.ts";
+import { fakeHarness } from "./fake_session.ts";
 // Importing the trace entry augments AgentProgramContext with scope/onEvent/export.
 import "../src/trace/index.ts";
 import { type AgentEvent, formatEvent } from "../src/trace/index.ts";
@@ -27,7 +27,7 @@ describe("trace entry (F8, opt-in)", () => {
       }
     }
     const out = await runProgram(Traced, "x", {
-      openSession: fakeOpenSession([{ call: { name: CONTROL_TOOLS.return, args: { value: 5 } } }]),
+      harnesses: fakeHarness([{ call: { name: CONTROL_TOOLS.return, args: { value: 5 } } }]),
       model: "fake",
     });
     expect(out).toBe(5);

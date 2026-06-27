@@ -13,10 +13,10 @@
 //     ▸ value                 (a turn whose agent foom_calls score() → method span)
 //     ▸ text                  (final streamed summary turn)
 //
-// Every value turn is string-typed so it also runs under `microfoom … --faux`
-// (the faux session returns strings). Run it:
+// Every value turn is string-typed so it also runs under `--harness fake`
+// (the fake session returns strings). Run it:
 //   microfoom run examples/audit.ts "acme.com"
-//   pnpm cli examples/audit.ts "acme.com" --faux        # offline, deterministic
+//   pnpm cli examples/audit.ts "acme.com" --harness fake   # offline, deterministic
 
 import { foom, Program } from "@microfoom/core";
 // Importing the trace entry adds the instrumentation surface (scope/annotate/log)

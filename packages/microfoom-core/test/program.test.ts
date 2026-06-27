@@ -12,7 +12,7 @@ import {
   type SessionTurnResult,
 } from "../src/index.ts";
 import { makeStandardSchema } from "../src/standard_schema.ts";
-import { type FakeRound, fakeOpenSession } from "./fake_session.ts";
+import { type FakeRound, fakeHarness } from "./fake_session.ts";
 import { Calc } from "./fixtures/calc_program.ts";
 
 const numberSchema: StandardSchemaV1<unknown, number> = makeStandardSchema((input) =>
@@ -24,7 +24,7 @@ const stringInput: StandardSchemaV1<unknown, string> = makeStandardSchema((input
 
 const callRound = (name: string, args: unknown): FakeRound => ({ call: { name, args } });
 
-describe("program facade (end to end, faux session)", () => {
+describe("program facade (end to end, fake session)", () => {
   it("runs a text turn and returns the prose", async () => {
     class Greeter extends Program<typeof stringInput, string>(stringInput) {
       async main(who: string): Promise<string> {
@@ -32,7 +32,7 @@ describe("program facade (end to end, faux session)", () => {
       }
     }
     const out = await runProgram(Greeter, "sam", {
-      openSession: fakeOpenSession([{ text: "hi sam" }]),
+      harnesses: fakeHarness([{ text: "hi sam" }]),
       model: "fake",
     });
     expect(out).toBe("hi sam");
@@ -45,7 +45,7 @@ describe("program facade (end to end, faux session)", () => {
       }
     }
     const out = await runProgram(Picker, "x", {
-      openSession: fakeOpenSession([callRound(CONTROL_TOOLS.return, { value: 9 })]),
+      harnesses: fakeHarness([callRound(CONTROL_TOOLS.return, { value: 9 })]),
       model: "fake",
     });
     expect(out).toBe(9);
@@ -59,7 +59,7 @@ describe("program facade (end to end, faux session)", () => {
       }
     }
     const out = await runProgram(Configured, "x", {
-      openSession: fakeOpenSession([{ text: "ok" }]),
+      harnesses: fakeHarness([{ text: "ok" }]),
       model: "fallback",
     });
     expect(out).toBe("ok");
@@ -68,7 +68,7 @@ describe("program facade (end to end, faux session)", () => {
   it("dispatches a foom_call into an exposed method (with derived schema)", async () => {
     const sourceFile = fileURLToPath(new URL("./fixtures/calc_program.ts", import.meta.url));
     const out = await runProgram(Calc, 21, {
-      openSession: fakeOpenSession([
+      harnesses: fakeHarness([
         callRound(CONTROL_TOOLS.call, { method: "double", arguments: { n: 21 } }),
         callRound(CONTROL_TOOLS.return, { value: 42 }),
       ]),
@@ -107,7 +107,7 @@ describe("program facade (end to end, faux session)", () => {
       }
     }
 
-    await runProgram(WithTool, "x", { openSession: capturing, model: "fake" });
+    await runProgram(WithTool, "x", { harnesses: { default: capturing }, model: "fake" });
     const score = toolDefs.find((tool) => tool.name === "score");
     expect(score?.description).toBe("scores findings");
     expect(score?.promptSnippet).toBe("Use to score a finding count.");
@@ -132,7 +132,7 @@ describe("program facade (end to end, faux session)", () => {
       }
     }
 
-    await runProgram(P, "x", { openSession: capturing, model: "fake" });
+    await runProgram(P, "x", { harnesses: { default: capturing }, model: "fake" });
 
     const returnTool = request?.tools.find((tool) => tool.name === CONTROL_TOOLS.return);
     const params = returnTool?.parameters as
@@ -151,7 +151,7 @@ describe("program facade (end to end, faux session)", () => {
       }
     }
     const out = await runProgram(Picker, "x", {
-      openSession: fakeOpenSession([
+      harnesses: fakeHarness([
         callRound(CONTROL_TOOLS.return, { value: "not a number" }),
         callRound(CONTROL_TOOLS.return, { value: 5 }),
       ]),
@@ -168,7 +168,7 @@ describe("program facade (end to end, faux session)", () => {
     }
     await expect(
       runProgram(Thrower, "x", {
-        openSession: fakeOpenSession([
+        harnesses: fakeHarness([
           callRound(CONTROL_TOOLS.throw, { message: "nope", code: "E_NOPE" }),
         ]),
         model: "fake",
@@ -185,7 +185,7 @@ describe("program facade (end to end, faux session)", () => {
       }
     }
     const out = await runProgram(Chat, "x", {
-      openSession: fakeOpenSession([
+      harnesses: fakeHarness([
         { text: "a random number is..." },
         callRound(CONTROL_TOOLS.return, { value: 4 }),
       ]),

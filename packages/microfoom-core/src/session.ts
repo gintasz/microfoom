@@ -1,5 +1,5 @@
 // Harness session port + turn coordinator (ADR-0002, revised). The harness owns
-// the model loop and EXECUTES the FOOM tools (pi runs them; the faux replays
+// the model loop and EXECUTES the FOOM tools (pi runs them; the fake replays
 // them); core supplies the tool semantics (tools.ts) and this one thin
 // coordinator that both share — so there is no duplicated loop. This is the
 // Promise seam to an external agent (E1: foreign boundary); the pure domain

@@ -8,7 +8,7 @@ import type { AgentUsage } from "../src/index.ts";
 import { CONTROL_TOOLS, Program, runProgram } from "../src/index.ts";
 import { makeStandardSchema } from "../src/standard_schema.ts";
 import { type AgentEvent, buildRunTree, type RunNode } from "../src/trace/index.ts";
-import { fakeOpenSession } from "./fake_session.ts";
+import { fakeHarness } from "./fake_session.ts";
 
 const stringSchema: StandardSchemaV1<unknown, string> = makeStandardSchema((input) =>
   typeof input === "string" ? { value: input } : { issues: [{ message: "string" }] },
@@ -33,15 +33,12 @@ describe("run span tree — live emission (F8)", () => {
     }
 
     const out = await runProgram(Greeter, "x", {
-      openSession: fakeOpenSession(
-        [{ call: { name: CONTROL_TOOLS.return, args: { value: "hi" } } }],
-        {
-          inputTokens: 3,
-          outputTokens: 7,
-          totalTokens: 10,
-          costUsd: 0.02,
-        },
-      ),
+      harnesses: fakeHarness([{ call: { name: CONTROL_TOOLS.return, args: { value: "hi" } } }], {
+        inputTokens: 3,
+        outputTokens: 7,
+        totalTokens: 10,
+        costUsd: 0.02,
+      }),
       model: "fake",
       onEvent: (event) => events.push(event),
     });
@@ -70,9 +67,7 @@ describe("run span tree — live emission (F8)", () => {
       }
     }
     const out = await runProgram(Quiet, "x", {
-      openSession: fakeOpenSession([
-        { call: { name: CONTROL_TOOLS.return, args: { value: "ok" } } },
-      ]),
+      harnesses: fakeHarness([{ call: { name: CONTROL_TOOLS.return, args: { value: "ok" } } }]),
       model: "fake",
     });
     expect(out).toBe("ok");

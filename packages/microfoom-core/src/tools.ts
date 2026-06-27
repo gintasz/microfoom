@@ -316,7 +316,7 @@ export interface RunTurnParams {
 /**
  * Run one text/value turn over a harness session. The harness owns the loop and
  * executes the FOOM tools; this interprets the captured outcome. Shared by the pi
- * session and the faux test session.
+ * session and the fake test session.
  */
 export async function runProgramTurn(params: RunTurnParams): Promise<TurnOutcome> {
   if (params.caps.maxCallDepth !== undefined && params.ctx.depth() > params.caps.maxCallDepth) {

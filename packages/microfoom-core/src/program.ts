@@ -136,9 +136,15 @@ export function Program<S extends StandardSchemaV1, R = unknown>(
 
 // ─── Runner ──────────────────────────────────────────────────────────────────
 
-/** Options for running a program: the harness (opens sessions), model, source. */
+/** Options for running a program: the harness registry, model, source. */
 export interface RunProgramOptions {
-  readonly openSession: OpenSession;
+  /** Named harness ports — each name opens sessions on one harness. A sole entry
+   *  is the default; with several, set `defaultHarness` or select per scope via
+   *  `@foom.config({ harness })` / `.with({ harness })`. */
+  readonly harnesses: Record<string, OpenSession>;
+  /** Widest-scope harness name. Needed only when `harnesses` has 2+ entries and
+   *  no narrower scope selects one. Must be a key of `harnesses`. */
+  readonly defaultHarness?: string;
   readonly model: string;
   /** Program source path — required for `foom_call` parameter derivation (ADR-0003). */
   readonly sourceFile?: string;
@@ -197,7 +203,7 @@ function resolveCaps(config: AgentConfig): ResolvedCaps {
 
 interface Runtime {
   readonly instance: object;
-  readonly openSession: OpenSession;
+  readonly harnesses: Record<string, OpenSession>;
   defaults: AgentConfig;
   readonly classConfig: AgentConfig;
   readonly exposed: Map<string, ExposeMeta>;
@@ -528,17 +534,24 @@ function makeRun(
   return { text, value };
 }
 
-function statelessSource(runtime: Runtime, model: string): SessionSource {
-  // Each stateless turn gets its own fresh session (no shared transcript).
-  return { get: () => Promise.resolve(runtime.openSession({ model })) };
+function statelessSource(runtime: Runtime, model: string, options: AgentOptions): SessionSource {
+  // Each stateless turn gets its own fresh session (no shared transcript). The
+  // harness is resolved per turn, so a method's @foom.config({ harness }) (live in
+  // runtime.methodConfig while it runs) takes effect for turns it makes.
+  return {
+    get: () => Promise.resolve(harnessPort(runtime, optionsHarness(runtime, options))({ model })),
+  };
 }
 
 function makeSession(runtime: Runtime, options: AgentOptions): AgentSession {
   const model = optionsModel(runtime, options);
+  // A session is one provider thread bound to one harness; resolve it once at
+  // open (a session never switches harness mid-conversation).
+  const port = harnessPort(runtime, optionsHarness(runtime, options));
   let opened: Promise<HarnessSession> | undefined;
   const source: SessionSource = {
     get: () => {
-      opened ??= Promise.resolve(runtime.openSession({ model }));
+      opened ??= Promise.resolve(port({ model }));
       return opened;
     },
     guard: { inFlight: false },
@@ -565,6 +578,37 @@ function optionsModel(runtime: Runtime, options: AgentOptions): string {
   return merged.model;
 }
 
+/** Look up a registered harness port by name; an unknown name is a typed error. */
+function harnessPort(runtime: Runtime, name: string): OpenSession {
+  const port = runtime.harnesses[name];
+  if (port === undefined) {
+    const known = Object.keys(runtime.harnesses);
+    throw new FoomtimeConfigError(
+      `unknown harness "${name}"; registered: ${known.length > 0 ? known.join(", ") : "none"}`,
+    );
+  }
+  return port;
+}
+
+/**
+ * Effective harness name for a turn/session, from the full cascade (harness
+ * default → class → method → call). No selection anywhere is a typed error — the
+ * runtime never guesses a positional default.
+ */
+function optionsHarness(runtime: Runtime, options: AgentOptions): string {
+  const merged = mergeConfigChain(
+    [runtime.defaults, runtime.classConfig, runtime.methodConfig, pickConfig(options)].filter(
+      (c): c is AgentConfig => c !== undefined,
+    ),
+  );
+  if (merged.harness === undefined) {
+    throw new FoomtimeConfigError(
+      "no harness selected (set defaultHarness in run options, or @foom.config({ harness }), or .with({ harness }))",
+    );
+  }
+  return merged.harness;
+}
+
 function makeScope(
   runtime: Runtime,
   options: AgentOptions,
@@ -589,7 +633,7 @@ function makeScope(
   const run = makeRun(
     runtime,
     { ...options, label: options.label ?? name },
-    statelessSource(runtime, optionsModel(runtime, options)),
+    statelessSource(runtime, optionsModel(runtime, options), options),
     spanId,
   );
   return {
@@ -607,7 +651,11 @@ function makeContext<P extends object>(
   runtime: Runtime,
   options: AgentOptions,
 ): AgentProgramContext<P> {
-  const run = makeRun(runtime, options, statelessSource(runtime, runtime.defaults.model ?? ""));
+  const run = makeRun(
+    runtime,
+    options,
+    statelessSource(runtime, runtime.defaults.model ?? "", options),
+  );
   const context: AgentProgramContext<P> & TraceContext = {
     text: run.text,
     value: run.value,
@@ -653,12 +701,31 @@ export async function runProgram<P extends FoomtimeProgram<never, unknown>>(
   }
 
   const classMeta = readClassMeta(instance);
+
+  // Resolve the default harness once: an explicit name wins (and must exist); a
+  // sole registered harness is unambiguous; otherwise leave it unset so an
+  // unselected harness fails loudly rather than guessing a positional default.
+  const harnessNames = Object.keys(options.harnesses);
+  if (harnessNames.length === 0) {
+    throw new FoomtimeConfigError("no harnesses registered (run options.harnesses is empty)");
+  }
+  let defaultHarness = options.defaultHarness;
+  if (defaultHarness !== undefined && options.harnesses[defaultHarness] === undefined) {
+    throw new FoomtimeConfigError(
+      `defaultHarness "${defaultHarness}" is not a registered harness (have: ${harnessNames.join(", ")})`,
+    );
+  }
+  if (defaultHarness === undefined && harnessNames.length === 1) defaultHarness = harnessNames[0];
+
   const defaults = options.defaults !== undefined ? pickConfig(options.defaults) : {};
   if (defaults.model === undefined) defaults.model = options.model;
+  if (defaults.harness === undefined && defaultHarness !== undefined) {
+    defaults.harness = defaultHarness;
+  }
 
   const runtime: Runtime = {
     instance,
-    openSession: options.openSession,
+    harnesses: options.harnesses,
     defaults,
     classConfig: classMeta?.config !== undefined ? pickConfig(classMeta.config) : {},
     exposed: exposedMethods(instance),

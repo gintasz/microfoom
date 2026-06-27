@@ -17,6 +17,7 @@ export type AgentClassDecorator = <T extends abstract new (...args: never[]) => 
 
 // @public
 export interface AgentConfig {
+    harness?: string;
     // (undocumented)
     maxBudgetUsd?: number;
     // (undocumented)
@@ -368,13 +369,13 @@ export function runProgram<P extends FoomtimeProgram<never, unknown>>(ProgramCla
 // @public
 export interface RunProgramOptions {
     readonly className?: string;
+    readonly defaultHarness?: string;
     readonly defaults?: AgentOptions;
+    readonly harnesses: Record<string, OpenSession>;
     // (undocumented)
     readonly model: string;
     // Warning: (ae-forgotten-export) The symbol "AgentEvent" needs to be exported by the entry point index.d.ts
     readonly onEvent?: (event: AgentEvent) => void;
-    // (undocumented)
-    readonly openSession: OpenSession;
     // (undocumented)
     readonly signal?: AbortSignal;
     readonly sourceFile?: string;

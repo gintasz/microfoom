@@ -24,6 +24,10 @@ export type SystemPrompt = { append: string } | { replace: string };
 export interface AgentConfig {
   // --- override: closest scope wins ---
   model?: string;
+  /** Which registered harness runs this scope's agent turns. An opaque key into
+   *  the run's harness registry (resolved at session-open), so the generic core
+   *  never names a concrete adapter. */
+  harness?: string;
   thinking?: ThinkingLevel;
   retries?: number;
   repairAttempts?: number;
@@ -109,6 +113,7 @@ type LooseConfig = { [K in keyof AgentConfig]-?: AgentConfig[K] | undefined };
 function compact(config: LooseConfig): AgentConfig {
   const out: AgentConfig = {};
   if (config.model !== undefined) out.model = config.model;
+  if (config.harness !== undefined) out.harness = config.harness;
   if (config.thinking !== undefined) out.thinking = config.thinking;
   if (config.retries !== undefined) out.retries = config.retries;
   if (config.repairAttempts !== undefined) out.repairAttempts = config.repairAttempts;
@@ -127,6 +132,7 @@ function compact(config: LooseConfig): AgentConfig {
 export function mergeConfig(wider: AgentConfig, narrower: AgentConfig): AgentConfig {
   const merged: LooseConfig = {
     model: override(wider.model, narrower.model),
+    harness: override(wider.harness, narrower.harness),
     thinking: override(wider.thinking, narrower.thinking),
     retries: override(wider.retries, narrower.retries),
     repairAttempts: override(wider.repairAttempts, narrower.repairAttempts),

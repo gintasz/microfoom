@@ -10,7 +10,7 @@ When a change is completed, always run full workspace tests, not just unit tests
 
 ```bash
 pnpm run typecheck # types only, no tests
-pnpm test          # deterministic suite (unit + faux). Excludes e2e.
+pnpm test          # deterministic suite (unit + fake). Excludes e2e.
 pnpm run test:e2e  # real-LLM e2e (dev machine must have model auth). Logs every run to /tmp/microfoom/e2e-<date>.log
 pnpm run build
 pnpm run check     # full DoD gate (typecheck, format, lint, arch, ast, spell, deps, dead, dup, build, api-surface, test)

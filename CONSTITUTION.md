@@ -124,7 +124,7 @@ Deliberately **not** maximized — they yield when they conflict with the above:
 ## S. State, Effects & Concurrency
 *Tier: Core*
 
-- **S1. Side-effect handling** `[tradeoff]` — Time, randomness, filesystem, and model sessions are injected as explicit dependencies (a passed `openSession`, an injected clock/RNG), never reached for directly from domain code. Tests supply fakes/fixtures through the same injection points — no global monkey-patching. *(review)*
+- **S1. Side-effect handling** `[tradeoff]` — Time, randomness, filesystem, and model sessions are injected as explicit dependencies (a passed harness registry of `openSession` ports, an injected clock/RNG), never reached for directly from domain code. Tests supply fakes/fixtures through the same injection points — no global monkey-patching. *(review)*
 - **S2. Mutation boundary** `[tradeoff]` — Per-run mutable state lives on a single threaded run-context object and changes only through reducer-style folds (e.g. usage accumulation via an associative combine, OB3). Terminal state (final status/result) has **exactly one writer**. No other code stamps final state. *(review)*
 - **S3. Concurrency model** `[tradeoff]` — Concurrency uses `Promise`/`async` with `AbortSignal`-based cancellation; timeouts race the run against a deadline and propagate abort so a cancelled run rejects cleanly with a taxonomy error (F7). Each run owns its state; nested-run accounting folds into the parent without double counting. Stateful sessions are single-flight (overlapping turns are a programming error — a distinct taxonomy error), with an explicit fork/branch primitive for concurrency, while stateless turns are concurrency-safe (F6). *(review)*
 

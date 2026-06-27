@@ -1,4 +1,5 @@
 # microfoom
+Typed building blocks for coordination engineering.
 
 A TypeScript runtime where **your code orchestrates and the model does only the
 fuzzy work**. You write ordinary TypeScript — control flow, recursion, parallelism,
@@ -32,27 +33,18 @@ export default class extends Program<typeof Input, number>(Input) {
 }
 ```
 
-## The four control operations (FOOM\*)
+## The 4 control operations (agent tools)
 
-The agent reaches your program only through native function-calling, never parsed
-from text:
+The agent, invoked via microfoom, communicates with your program only through function-calling:
 
-- **`foom_call`** — invoke an exposed method.
-- **`foom_return`** — return a structured value (validated against a Standard Schema).
-- **`foom_throw`** — abort with a caller-defined error code.
-- **`foom_inspect`** — read an exposed method's parameter schema.
+- **`foom_call(method_name, args_object)`** — invoke an exposed method in microfoom program.
+- **`foom_return(args_object)`** — return a structured value.
+- **`foom_throw(message, code)`** — abort execution with an error.
+- **`foom_inspect(method_name)`** — read an exposed method's parameter schema.
 
 Exposed methods come in three tiers by context cost: silent (`@foom.expose`),
 announced (`{ announcement }`), and full native tool (`{ tool }`, parameters
 derived from the TypeScript signature).
-
-## Packages
-
-| Package | Role |
-| --- | --- |
-| `@microfoom/core` | Harness-agnostic runtime: program model, `@foom` decorators, config cascade, schema derivation, FOOM tool semantics, error taxonomy. Effect-free public surface. |
-| `@microfoom/pi-adapter` | The reference harness adapter over the [pi](https://github.com/earendil-works/pi) agent: binds core's session port to pi's runtime so programs run against a real model. |
-| `@microfoom/cli` | The `microfoom run` CLI: run a program file, result to stdout, live trace panel to stderr. |
 
 ## Running a program
 
@@ -69,10 +61,13 @@ import { runProgram } from "@microfoom/core";
 import { createPiOpenSession } from "@microfoom/pi-adapter";
 
 const result = await runProgram(MyProgram, input, {
-  openSession: createPiOpenSession(), // resolves model + auth from ~/.pi
+  harnesses: { pi: createPiOpenSession() }, // named harness ports; sole entry is the default
   model: "openrouter/deepseek/deepseek-v4-flash",
   sourceFile: "./my-program.ts", // enables `foom_call` parameter derivation
 });
+// Multiple harnesses in one program: register several and select per agent via
+// `.with({ harness })` / `@foom.config({ harness })`; set `defaultHarness` for the
+// widest scope when there is more than one.
 ```
 
 ## Development

@@ -39,7 +39,7 @@ describe("pi harness session via faux provider (deterministic)", () => {
         return await this.agent.text`Greet me.`;
       }
     }
-    const out = await runProgram(Greeter, "x", { openSession, model });
+    const out = await runProgram(Greeter, "x", { harnesses: { pi: openSession }, model });
     expect(out).toBe("hello from pi");
   });
 
@@ -54,7 +54,7 @@ describe("pi harness session via faux provider (deterministic)", () => {
         return await this.agent.value(numberSchema)`Pick a number.`;
       }
     }
-    const out = await runProgram(Picker, "x", { openSession, model });
+    const out = await runProgram(Picker, "x", { harnesses: { pi: openSession }, model });
     expect(out).toBe(7);
   });
 });

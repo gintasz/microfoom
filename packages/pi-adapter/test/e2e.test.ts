@@ -24,7 +24,10 @@ describe("pi e2e (real model)", () => {
       }
     }
     try {
-      const out = await runProgram(Pick, "x", { openSession: createPiOpenSession(), model });
+      const out = await runProgram(Pick, "x", {
+        harnesses: { pi: createPiOpenSession() },
+        model,
+      });
       console.warn(`e2e produced: ${out}`);
       expect(typeof out).toBe("number");
     } catch (error) {

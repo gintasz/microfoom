@@ -14,7 +14,7 @@ import type { RunNode } from '@microfoom/core/trace';
 export function attachPanel(stream: NodeJS.WriteStream): Panel;
 
 // @public (undocumented)
-export function fauxOpenSession(): OpenSession;
+export function fakeOpenSession(): OpenSession;
 
 // @public
 export function fmtCost(costUsd: number | undefined): string;

@@ -40,3 +40,11 @@ export function fakeOpenSession(
   };
   return () => session;
 }
+
+/** A single-entry harness registry around {@link fakeOpenSession} (auto-default). */
+export function fakeHarness(
+  script: readonly FakeRound[],
+  usage: UsageDelta = USAGE,
+): Record<string, OpenSession> {
+  return { default: fakeOpenSession(script, usage) };
+}
