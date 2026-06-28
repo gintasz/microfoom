@@ -91,7 +91,7 @@ export default class extends Program(Input) {
 ```
 
 ## Supported harnesses
-pi, claude code cli (uses `-p` command)
+pi (uses agent sdk), claude code cli (uses headless `claude` cli with `-p` arg)
 
 ## Control operations given to agent
 
