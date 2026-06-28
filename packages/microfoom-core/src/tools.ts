@@ -302,7 +302,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
       },
       (error: unknown) => {
         clearTimeout(timer);
-        reject(error as Error);
+        reject(error);
       },
     );
   });

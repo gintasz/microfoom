@@ -27,10 +27,21 @@
     "enabled": true,
     "rules": {
       "preset": "recommended",
-      "suspicious": { "noExplicitAny": "error" },
+      "complexity": {
+        "noExcessiveCognitiveComplexity": "info"
+      },
+      "suspicious": {
+        "noExplicitAny": "error",
+        "noEvolvingTypes": "error"
+      },
       "style": {
         "noNonNullAssertion": "error",
         "useImportType": "error"
+      },
+      "nursery": {
+        "noFloatingPromises": "error",
+        "noMisusedPromises": "error",
+        "useExhaustiveSwitchCases": "error"
       }
     }
   },
@@ -38,6 +49,16 @@
     "formatter": { "quoteStyle": "double", "semicolons": "always", "trailingCommas": "all" }
   },
   "overrides": [
+    {
+      "includes": ["packages/*/test/**", "examples/**"],
+      "linter": {
+        "rules": {
+          "nursery": {
+            "noFloatingPromises": "off"
+          }
+        }
+      }
+    },
     {
       "includes": ["packages/microfoom-cli/src/tui.tsx", "packages/microfoom-cli/src/tui/**"],
       "linter": {

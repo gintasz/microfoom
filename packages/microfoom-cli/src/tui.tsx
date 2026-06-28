@@ -91,7 +91,7 @@ async function main(): Promise<void> {
     file: sourceFile,
     model,
     harness: harnessName,
-    input: input === undefined ? "" : String(input),
+    input: input === undefined ? "" : typeof input === "string" ? input : JSON.stringify(input),
   });
 
   // Mount the UI first so it shows immediately, then drive the run into the store.
@@ -141,7 +141,7 @@ async function main(): Promise<void> {
     ...(plugins !== undefined ? { plugins } : {}),
   };
   try {
-    const result = await runProgram(ProgramClass as never, input, {
+    const result: unknown = await runProgram(ProgramClass as never, input, {
       harnesses: { [harnessName]: openSession },
       model,
       sourceFile,

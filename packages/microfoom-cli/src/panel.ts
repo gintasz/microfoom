@@ -19,7 +19,8 @@ const REDRAW_MS = 60;
 export function attachPanel(stream: NodeJS.WriteStream): Panel {
   const log = createLogUpdate(stream);
   const events: AgentEvent[] = [];
-  const width = stream.columns ?? 80;
+  // Node types `columns` as `number`, but it is `undefined` for a non-TTY stream.
+  const width = (stream.columns as number | undefined) ?? 80;
   let timer: NodeJS.Timeout | undefined;
 
   const flush = (): void => {

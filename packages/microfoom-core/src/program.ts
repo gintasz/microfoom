@@ -136,7 +136,7 @@ const contexts = new WeakMap<object, AgentProgramContext<object>>();
 
 /** Internal: the runner wires `this.agent` after constructing a program. */
 export function attachContext<P extends object>(program: P, context: AgentProgramContext<P>): void {
-  contexts.set(program, context as AgentProgramContext<object>);
+  contexts.set(program, context);
 }
 
 /** The program base class. Extend via Program(schema) for a typed input. */
@@ -613,9 +613,7 @@ function makeRun(
       return makeResult({
         run: async (signal) => {
           const outcome = await drive({ kind: "value", schema }, prompt, signal);
-          return outcome.kind === "value"
-            ? (outcome.value as StandardSchemaV1.InferOutput<typeof schema>)
-            : (undefined as StandardSchemaV1.InferOutput<typeof schema>);
+          return outcome.kind === "value" ? outcome.value : undefined;
         },
         usage: () => readUsage(runtime),
       });
@@ -700,11 +698,7 @@ function makeSession(runtime: Runtime, options: AgentOptions): AgentSession {
 }
 
 function optionsModel(runtime: Runtime, options: AgentOptions): string {
-  const merged = mergeConfigChain(
-    [runtime.defaults, runtime.classConfig, pickConfig(options)].filter(
-      (c): c is AgentConfig => c !== undefined,
-    ),
-  );
+  const merged = mergeConfigChain([runtime.defaults, runtime.classConfig, pickConfig(options)]);
   if (merged.model === undefined) throw new FoomtimeConfigError("no model configured");
   return merged.model;
 }
@@ -720,11 +714,7 @@ function openOptions(
   model: string,
   options: AgentOptions,
 ): HarnessSessionOptions {
-  const merged = mergeConfigChain(
-    [runtime.defaults, runtime.classConfig, pickConfig(options)].filter(
-      (c): c is AgentConfig => c !== undefined,
-    ),
-  );
+  const merged = mergeConfigChain([runtime.defaults, runtime.classConfig, pickConfig(options)]);
   return {
     model,
     ...(merged.skills !== undefined ? { skills: merged.skills } : {}),

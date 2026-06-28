@@ -93,7 +93,7 @@ export function App({
   useEffect(() => {
     const sync = (): void => {
       const detected = renderer.themeMode;
-      if (detected !== null && detected !== undefined) setMode(detected);
+      if (detected !== null) setMode(detected);
     };
     sync();
     renderer.on("theme_mode", sync);
@@ -418,7 +418,9 @@ function describe(
 
 function prettyArgs(args: unknown): string {
   try {
-    return ellipsizeBlock(JSON.stringify(args, null, 2) ?? String(args), 4000);
+    // The catch is the fallback: if JSON.stringify yields undefined (functions,
+    // symbols), ellipsizeBlock throws and we stringify directly below.
+    return ellipsizeBlock(JSON.stringify(args, null, 2), 4000);
   } catch {
     return String(args);
   }

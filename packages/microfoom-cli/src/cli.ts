@@ -272,7 +272,7 @@ async function run(): Promise<number> {
     parseList(values.plugins),
   );
   try {
-    const result = await runProgram(ProgramClass, input, {
+    const result: unknown = await runProgram(ProgramClass, input, {
       harnesses: { [harnessName]: openSession },
       model,
       sourceFile,

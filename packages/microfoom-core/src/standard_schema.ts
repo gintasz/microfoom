@@ -47,7 +47,7 @@ export function formatIssues(issues: ValidationIssues): string {
       const path = issue.path
         ?.map((segment) => (typeof segment === "object" ? segment.key : segment))
         .join(".");
-      return path ? `${path}: ${issue.message}` : issue.message;
+      return path !== undefined && path !== "" ? `${path}: ${issue.message}` : issue.message;
     })
     .join("; ");
 }

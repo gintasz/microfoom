@@ -113,7 +113,7 @@ function buildExposeMeta(
   return meta;
 }
 
-function applyExpose(options: AgentExposeOptions | undefined, context: MethodContext): void {
+function applyExpose(options: AgentExposeOptions | undefined, context: AnyDecoratorContext): void {
   if (context.kind !== "method") {
     throw new FoomtimeConfigError("@foom.expose applies to methods only.");
   }
@@ -144,7 +144,7 @@ function expose(
 ): AgentMethodDecorator | undefined {
   if (isDecoratorContext(maybeContext)) {
     // Bare usage: `@foom.expose method() {}` — invoked as the decorator itself.
-    applyExpose(undefined, maybeContext as MethodContext);
+    applyExpose(undefined, maybeContext);
     return;
   }
   const options = optionsOrValue as AgentExposeOptions | undefined;
@@ -174,6 +174,6 @@ function expose(
  * ```
  */
 export const foom: AgentDecorators = {
-  config: ((options: AgentOptions) => makeConfig(options)) as AgentConfigDecorator,
+  config: (options: AgentOptions) => makeConfig(options),
   expose: expose as unknown as AgentExposeDecorator,
 };

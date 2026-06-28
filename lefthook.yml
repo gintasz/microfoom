@@ -9,6 +9,8 @@ pre-commit:
       stage_fixed: true
     typecheck:
       run: pnpm run typecheck
+    lint:types:
+      run: pnpm run lint:types
     spell:
       run: pnpm exec cspell --no-progress --no-must-find-files {staged_files}
 

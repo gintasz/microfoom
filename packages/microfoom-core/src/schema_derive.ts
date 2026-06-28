@@ -39,7 +39,7 @@ function arrayElementType(type: ts.Type, checker: ts.TypeChecker): ts.Type | und
   const objectFlags = (type as ts.ObjectType).objectFlags;
   if ((type.flags & ts.TypeFlags.Object) !== 0 && (objectFlags & ts.ObjectFlags.Reference) !== 0) {
     const reference = type as ts.TypeReference;
-    if (reference.target.symbol?.getName() === "Array") {
+    if (reference.target.symbol.getName() === "Array") {
       return checker.getTypeArguments(reference)[0];
     }
   }
@@ -141,7 +141,7 @@ function findDefaultExportMain(source: ts.SourceFile): ts.MethodDeclaration | un
   const visit = (node: ts.Node): void => {
     if (
       ts.isClassDeclaration(node) &&
-      node.modifiers?.some((m) => m.kind === ts.SyntaxKind.DefaultKeyword)
+      node.modifiers?.some((m) => m.kind === ts.SyntaxKind.DefaultKeyword) === true
     ) {
       for (const member of node.members) {
         if (ts.isMethodDeclaration(member) && member.name.getText(source) === "main") {

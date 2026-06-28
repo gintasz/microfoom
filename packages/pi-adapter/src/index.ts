@@ -81,7 +81,7 @@ function toAgentTool(tool: NeutralToolDef): AgentTool {
     name: tool.name,
     label: tool.name,
     description: toolDescription(tool),
-    parameters: Type.Unsafe(tool.parameters as Record<string, unknown>),
+    parameters: Type.Unsafe(tool.parameters),
     execute: async (_id: string, params: unknown): Promise<AgentToolResult<unknown>> => {
       const result = await tool.execute(params);
       const content: TextContent[] = [{ type: "text", text: result.content }];
@@ -149,8 +149,8 @@ function toolResultText(result: unknown): string {
   if (!Array.isArray(content)) return "";
   return content
     .filter(
-      (part): part is TextContent =>
-        typeof part === "object" && part !== null && (part as TextContent).type === "text",
+      (part: unknown): part is TextContent =>
+        typeof part === "object" && part !== null && "type" in part && part.type === "text",
     )
     .map((part) => part.text)
     .join("");
@@ -251,7 +251,11 @@ function composeSystemPrompt(base: string | undefined, programPrompt: string): s
 /** A plugin's stable identifier for `allowedPlugins` matching: pi's source name,
  *  falling back to the extension file's basename. */
 function pluginName(ext: Extension): string {
-  return ext.sourceInfo?.source ?? basename(ext.resolvedPath).replace(/\.[^.]+$/, "");
+  // pi types sourceInfo.source as required, but plugin metadata can lack it at runtime.
+  return (
+    (ext.sourceInfo as { source?: string } | undefined)?.source ??
+    basename(ext.resolvedPath).replace(/\.[^.]+$/, "")
+  );
 }
 
 /**
