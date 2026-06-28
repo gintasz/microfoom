@@ -50,6 +50,13 @@ export default tseslint.config(
       "@typescript-eslint/no-base-to-string": "error",
       "@typescript-eslint/restrict-template-expressions": "error",
       "@typescript-eslint/no-unnecessary-type-assertion": "error",
+      // Adding a union variant must break any switch meant to handle it. An
+      // explicit `default` counts as exhaustive (intentional subset-dispatch over
+      // a large event union stays clean); a switch that forgets a catch-all fails.
+      "@typescript-eslint/switch-exhaustiveness-check": [
+        "error",
+        { considerDefaultExhaustiveForUnions: true },
+      ],
     },
   },
   {
