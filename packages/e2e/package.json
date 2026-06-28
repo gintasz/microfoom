@@ -1,0 +1,11 @@
+{
+  "name": "@microfoom/e2e",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "@earendil-works/pi-ai": "0.80.2",
+    "@microfoom/core": "workspace:*",
+    "@microfoom/pi-adapter": "workspace:*"
+  }
+}

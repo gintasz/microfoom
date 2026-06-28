@@ -4,6 +4,7 @@
   "ignoreExportsUsedInFile": true,
   "workspaces": {
     ".": { "entry": ["examples/*.ts"] },
-    "packages/microfoom-cli": { "entry": ["src/tui.tsx"] }
+    "packages/microfoom-cli": { "entry": ["src/tui.tsx"] },
+    "packages/e2e": { "entry": ["test/**/*.test.ts"] }
   }
 }

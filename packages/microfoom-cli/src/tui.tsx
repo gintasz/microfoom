@@ -44,6 +44,8 @@ async function main(): Promise<void> {
       model: { type: "string" },
       thinking: { type: "string" },
       "allowed-tools": { type: "string" },
+      "allowed-skills": { type: "string" },
+      "allowed-plugins": { type: "string" },
       input: { type: "string" },
       theme: { type: "string" },
       "omit-harness-prompt": { type: "boolean", default: false },
@@ -68,9 +70,22 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
+  const toList = (raw: string | undefined): readonly string[] | undefined =>
+    raw === undefined
+      ? undefined
+      : raw
+          .split(",")
+          .map((name) => name.trim())
+          .filter((name) => name.length > 0);
+  const allowedSkills = toList(values["allowed-skills"]);
+  const allowedPlugins = toList(values["allowed-plugins"]);
   const openSession =
     harnessName === "pi"
-      ? createPiOpenSession({ omitHarnessBasePrompt: values["omit-harness-prompt"] })
+      ? createPiOpenSession({
+          omitHarnessBasePrompt: values["omit-harness-prompt"],
+          ...(allowedSkills !== undefined ? { allowedSkills } : {}),
+          ...(allowedPlugins !== undefined ? { allowedPlugins } : {}),
+        })
       : makeHarness();
   const store = createStore();
   store.setMeta({ file: sourceFile, model, harness: harnessName, input: String(input) });

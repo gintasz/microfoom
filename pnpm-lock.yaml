@@ -69,6 +69,18 @@ importers:
         specifier: 4.4.3
         version: 4.4.3
 
+  packages/e2e:
+    devDependencies:
+      '@earendil-works/pi-ai':
+        specifier: 0.80.2
+        version: 0.80.2(ws@8.21.0)(zod@4.4.3)
+      '@microfoom/core':
+        specifier: workspace:*
+        version: link:../microfoom-core
+      '@microfoom/pi-adapter':
+        specifier: workspace:*
+        version: link:../pi-adapter
+
   packages/microfoom-cli:
     dependencies:
       '@microfoom/core':

@@ -44,6 +44,10 @@ Options:
   --thinking <level>  off | minimal | low | medium | high | xhigh
   --allowed-tools <a,b>   comma-separated allowlist of harness tools (default: all; "" = none;
                       FOOM tools always available)
+  --allowed-skills <a,b>  allowlist of skills advertised to the model (default: all installed;
+                      "" = none; matched by skill name). pi only.
+  --allowed-plugins <a,b> allowlist of plugins/extensions to load (default: all installed;
+                      "" = none; matched by source name). pi only.
   --input <value>     program input (alternative to the positional)
   --tui               open the interactive two-pane inspector (trace tree + live
                       transcript; mouse + scroll). Runs under bun; stays open when
@@ -76,8 +80,8 @@ function stringifyResult(result: unknown): string {
   return typeof result === "string" ? result : JSON.stringify(result);
 }
 
-/** Parse a `--allowed-tools` value: undefined → all; "" → none ([]); else CSV. */
-function parseAllowedTools(raw: string | undefined): readonly string[] | undefined {
+/** Parse a tri-state `--allowed-*` value: undefined → all; "" → none ([]); else CSV. */
+function parseAllowedList(raw: string | undefined): readonly string[] | undefined {
   if (raw === undefined) return undefined;
   return raw
     .split(",")
@@ -110,6 +114,8 @@ interface TuiArgs {
   readonly model: string | undefined;
   readonly thinking: string | undefined;
   readonly allowedTools: string | undefined;
+  readonly allowedSkills: string | undefined;
+  readonly allowedPlugins: string | undefined;
   readonly systemPrompt: boolean;
   readonly fullUserMsg: boolean;
   readonly omitHarnessPrompt: boolean;
@@ -148,6 +154,8 @@ async function runTui(args: TuiArgs): Promise<number> {
   if (args.model !== undefined) argv.push("--model", args.model);
   if (args.thinking !== undefined) argv.push("--thinking", args.thinking);
   if (args.allowedTools !== undefined) argv.push("--allowed-tools", args.allowedTools);
+  if (args.allowedSkills !== undefined) argv.push("--allowed-skills", args.allowedSkills);
+  if (args.allowedPlugins !== undefined) argv.push("--allowed-plugins", args.allowedPlugins);
   if (args.omitHarnessPrompt) argv.push("--omit-harness-prompt");
   if (args.systemPrompt) argv.push("--system-prompt");
   if (args.fullUserMsg) argv.push("--full-user-msg");
@@ -169,6 +177,8 @@ async function run(): Promise<number> {
       model: { type: "string" },
       thinking: { type: "string" },
       "allowed-tools": { type: "string" },
+      "allowed-skills": { type: "string" },
+      "allowed-plugins": { type: "string" },
       input: { type: "string" },
       tui: { type: "boolean", default: false },
       "omit-harness-prompt": { type: "boolean", default: false },
@@ -209,6 +219,8 @@ async function run(): Promise<number> {
       model: values.model,
       thinking: values.thinking,
       allowedTools: values["allowed-tools"],
+      allowedSkills: values["allowed-skills"],
+      allowedPlugins: values["allowed-plugins"],
       systemPrompt: values["system-prompt"],
       fullUserMsg: values["full-user-msg"],
       omitHarnessPrompt: values["omit-harness-prompt"],
@@ -228,9 +240,15 @@ async function run(): Promise<number> {
     );
     return 1;
   }
+  const allowedSkills = parseAllowedList(values["allowed-skills"]);
+  const allowedPlugins = parseAllowedList(values["allowed-plugins"]);
   const openSession =
     harnessName === "pi"
-      ? createPiOpenSession({ omitHarnessBasePrompt: values["omit-harness-prompt"] })
+      ? createPiOpenSession({
+          omitHarnessBasePrompt: values["omit-harness-prompt"],
+          ...(allowedSkills !== undefined ? { allowedSkills } : {}),
+          ...(allowedPlugins !== undefined ? { allowedPlugins } : {}),
+        })
       : makeHarness();
 
   const events: AgentEvent[] = [];
@@ -240,7 +258,7 @@ async function run(): Promise<number> {
     panel?.onEvent(event);
   };
 
-  const defaults = cliDefaults(values.thinking, parseAllowedTools(values["allowed-tools"]));
+  const defaults = cliDefaults(values.thinking, parseAllowedList(values["allowed-tools"]));
   try {
     const result = await runProgram(ProgramClass, input, {
       harnesses: { [harnessName]: openSession },

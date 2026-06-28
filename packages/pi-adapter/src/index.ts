@@ -8,7 +8,7 @@
 // frontend); it carries no extension/TUI concerns of its own.
 
 import { appendFileSync, mkdirSync } from "node:fs";
-import { dirname } from "node:path";
+import { basename, dirname } from "node:path";
 import {
   Agent,
   type AgentMessage,
@@ -26,7 +26,19 @@ import type {
   TextContent,
   Usage,
 } from "@earendil-works/pi-ai";
-import { AuthStorage, createAgentSession, ModelRegistry } from "@earendil-works/pi-coding-agent";
+import {
+  AuthStorage,
+  createAgentSession,
+  DefaultResourceLoader,
+  type Extension,
+  getAgentDir,
+  type LoadExtensionsResult,
+  ModelRegistry,
+  type ResourceDiagnostic,
+  type ResourceLoader,
+  SettingsManager,
+  type Skill,
+} from "@earendil-works/pi-coding-agent";
 import {
   FoomtimeHarnessRejectedError,
   FoomtimeHarnessUnavailableError,
@@ -216,6 +228,19 @@ export interface PiSessionOptions {
   readonly basePrompt?: string;
   /** Override the harness tool suite (tests / custom wiring). Default: pi's configured tools. */
   readonly tools?: readonly AgentTool[];
+  /**
+   * Skills advertised in the system prompt (pi loads SKILL.md catalogs from ~/.pi).
+   * Tri-state, mirroring `allowedTools`: `undefined` = all installed, `[]` = none,
+   * a list = only those (matched by skill name). Session-level: the catalog is baked
+   * into the base prompt at session creation, not per turn.
+   */
+  readonly allowedSkills?: readonly string[];
+  /**
+   * Plugins to load — pi calls these "extensions"; they contribute tools (and skills/
+   * prompts). Tri-state: `undefined` = all installed, `[]` = none, a list = only those
+   * (matched by the extension's source name). Session-level, like {@link allowedSkills}.
+   */
+  readonly allowedPlugins?: readonly string[];
 }
 
 interface PiRuntime {
@@ -243,6 +268,53 @@ function composeSystemPrompt(base: string | undefined, programPrompt: string): s
  * `session()` reuses one Agent (continued transcript), a stateless turn opens a
  * fresh one. Pass the result to runProgram's `openSession`.
  */
+/** A plugin's stable identifier for `allowedPlugins` matching: pi's source name,
+ *  falling back to the extension file's basename. */
+function pluginName(ext: Extension): string {
+  return ext.sourceInfo?.source ?? basename(ext.resolvedPath).replace(/\.[^.]+$/, "");
+}
+
+/**
+ * A resource loader filtered to the allowed skills/plugins, or `undefined` when
+ * neither is constrained (so callers inherit pi's default loading untouched).
+ * Tri-state per axis: `undefined` = all, `[]` = none (`noSkills`/`noExtensions`),
+ * a list = keep only matching members.
+ */
+async function buildResourceLoader(
+  allowedSkills: readonly string[] | undefined,
+  allowedPlugins: readonly string[] | undefined,
+): Promise<ResourceLoader | undefined> {
+  if (allowedSkills === undefined && allowedPlugins === undefined) return undefined;
+
+  const cwd = process.cwd();
+  const agentDir = getAgentDir();
+  const loader = new DefaultResourceLoader({
+    cwd,
+    agentDir,
+    settingsManager: SettingsManager.create(cwd, agentDir),
+    ...(allowedSkills !== undefined && allowedSkills.length === 0 ? { noSkills: true } : {}),
+    ...(allowedSkills !== undefined && allowedSkills.length > 0
+      ? {
+          skillsOverride: (base: { skills: Skill[]; diagnostics: ResourceDiagnostic[] }) => ({
+            ...base,
+            skills: base.skills.filter((skill) => allowedSkills.includes(skill.name)),
+          }),
+        }
+      : {}),
+    ...(allowedPlugins !== undefined && allowedPlugins.length === 0 ? { noExtensions: true } : {}),
+    ...(allowedPlugins !== undefined && allowedPlugins.length > 0
+      ? {
+          extensionsOverride: (base: LoadExtensionsResult) => ({
+            ...base,
+            extensions: base.extensions.filter((ext) => allowedPlugins.includes(pluginName(ext))),
+          }),
+        }
+      : {}),
+  });
+  await loader.reload();
+  return loader;
+}
+
 export function createPiOpenSession(options: PiSessionOptions = {}): OpenSession {
   const logFile = options.logFile ?? process.env.MICROFOOM_LOG;
   let cached: PiRuntime | undefined;
@@ -270,11 +342,18 @@ export function createPiOpenSession(options: PiSessionOptions = {}): OpenSession
     // tool suite from ~/.pi. We reuse its stream function AND its tools so a microfoom
     // turn is a full pi agent that also speaks the FOOM protocol; request.allowedTools
     // narrows the set per turn.
+    //
+    // Skills + plugins are session-level: pi bakes the skill catalog into the base
+    // prompt and the plugin tools into the tool set AT SESSION CREATION. To constrain
+    // them we hand createAgentSession a resource loader filtered to the allowed sets;
+    // when neither is constrained we pass none and inherit pi's defaults verbatim.
+    const resourceLoader = await buildResourceLoader(options.allowedSkills, options.allowedPlugins);
     const available = registry.getAvailable();
     const seed = available[0] ?? registry.getAll()[0];
     const { session } = await createAgentSession({
       modelRegistry: registry,
       ...(seed !== undefined ? { model: seed } : {}),
+      ...(resourceLoader !== undefined ? { resourceLoader } : {}),
     });
     cached = {
       streamFn: session.agent.streamFn,
