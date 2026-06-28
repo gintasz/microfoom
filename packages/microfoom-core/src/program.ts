@@ -760,10 +760,14 @@ function makeContext<P extends object>(
   runtime: Runtime,
   options: AgentOptions,
 ): AgentProgramContext<P> {
+  // Resolve the model from the full cascade (defaults → class → options), like
+  // makeScope/makeSession do — so a per-turn `this.agent.with({ model })` (or
+  // `.with({ harness, model })`) actually re-targets the stateless turn's session.
+  // Threading runtime.defaults.model here instead silently dropped the override.
   const run = makeRun(
     runtime,
     options,
-    statelessSource(runtime, runtime.defaults.model ?? "", options),
+    statelessSource(runtime, optionsModel(runtime, options), options),
   );
   const context: AgentProgramContext<P> & TraceContext = {
     do: run.do,
