@@ -179,6 +179,47 @@ async function runTui(args: TuiArgs): Promise<number> {
   }
 }
 
+/** Open a session on the named harness (pi gets the omit-base-prompt option), or
+ *  undefined when the name isn't a known harness. */
+function openHarnessSession(
+  harnessName: string,
+  omitHarnessPrompt: boolean,
+): OpenSession | undefined {
+  const makeHarness = HARNESSES[harnessName];
+  if (makeHarness === undefined) return undefined;
+  return harnessName === "pi"
+    ? createPiOpenSession({ omitHarnessBasePrompt: omitHarnessPrompt })
+    : makeHarness();
+}
+
+/** Run the program and render its result + run summary; map a thrown failure to a
+ *  non-zero exit. Returns the process exit code. */
+async function executeProgram(
+  ProgramClass: Awaited<ReturnType<typeof loadProgram>>,
+  input: unknown,
+  runOptions: Parameters<typeof runProgram>[2],
+  values: { json?: boolean; quiet?: boolean },
+  events: readonly AgentEvent[],
+  panel: ReturnType<typeof attachPanel> | undefined,
+): Promise<number> {
+  try {
+    const result: unknown = await runProgram(ProgramClass, input, runOptions);
+    panel?.done();
+    process.stdout.write(
+      `${values.json === true ? JSON.stringify(result) : stringifyResult(result)}\n`,
+    );
+    if (values.json !== true && values.quiet !== true) {
+      const tree = buildRunTree(events);
+      process.stderr.write(`${fmtSummary(tree.usage, tree.durationMs)}\n`);
+    }
+    return 0;
+  } catch (error) {
+    panel?.done();
+    process.stderr.write(`microfoom: ${error instanceof Error ? error.message : String(error)}\n`);
+    return 1;
+  }
+}
+
 async function run(): Promise<number> {
   const { values, positionals } = parseArgs({
     allowPositionals: true,
@@ -246,17 +287,13 @@ async function run(): Promise<number> {
 
   const ProgramClass = await loadProgram(sourceFile);
   const harnessName = values.harness ?? DEFAULT_HARNESS;
-  const makeHarness = HARNESSES[harnessName];
-  if (makeHarness === undefined) {
+  const openSession = openHarnessSession(harnessName, values["omit-harness-prompt"]);
+  if (openSession === undefined) {
     process.stderr.write(
       `microfoom: unknown harness "${harnessName}" (known: ${Object.keys(HARNESSES).join(", ")})\n`,
     );
     return 1;
   }
-  const openSession =
-    harnessName === "pi"
-      ? createPiOpenSession({ omitHarnessBasePrompt: values["omit-harness-prompt"] })
-      : makeHarness();
 
   const events: AgentEvent[] = [];
   const panel = usePanel ? attachPanel(process.stderr) : undefined;
@@ -271,28 +308,20 @@ async function run(): Promise<number> {
     parseList(values.skills),
     parseList(values.plugins),
   );
-  try {
-    const result: unknown = await runProgram(ProgramClass, input, {
+  return executeProgram(
+    ProgramClass,
+    input,
+    {
       harnesses: { [harnessName]: openSession },
       model,
       sourceFile,
       onEvent,
       ...(Object.keys(defaults).length > 0 ? { defaults } : {}),
-    });
-    panel?.done();
-
-    process.stdout.write(`${values.json ? JSON.stringify(result) : stringifyResult(result)}\n`);
-
-    if (!values.json && !values.quiet) {
-      const tree = buildRunTree(events);
-      process.stderr.write(`${fmtSummary(tree.usage, tree.durationMs)}\n`);
-    }
-    return 0;
-  } catch (error) {
-    panel?.done();
-    process.stderr.write(`microfoom: ${error instanceof Error ? error.message : String(error)}\n`);
-    return 1;
-  }
+    },
+    values,
+    events,
+    panel,
+  );
 }
 
 run().then(
