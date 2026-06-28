@@ -93,6 +93,6 @@ export function runTwoHarness(
     // A run-level model is required; the per-turn .with({ model }) overrides it for
     // each harness. The claudecli turn must NOT inherit this pi model.
     model: models.piModel,
-    defaults: { allowedTools: [] },
+    defaults: { tools: [] },
   });
 }

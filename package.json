@@ -15,7 +15,7 @@
   "scripts": {
     "build": "tsc -b",
     "clean": "tsc -b --clean",
-    "typecheck": "tsc -b --pretty false",
+    "typecheck": "tsc -b --pretty false && tsc -p tsconfig.test.json --pretty false",
     "test": "vitest run --exclude '**/e2e.test.ts'",
     "test:e2e": "vitest run e2e.test",
     "test:all": "vitest run",

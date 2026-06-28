@@ -39,7 +39,7 @@ describe("claudecli adapter via fake claude (offline)", () => {
     const out = await runProgram(Greeter, "x", {
       harnesses: { claudecli: openSession },
       model,
-      defaults: { allowedTools: [] },
+      defaults: { tools: [] },
     });
     expect(out).toBe("hello from claudecli");
   });
@@ -56,7 +56,7 @@ describe("claudecli adapter via fake claude (offline)", () => {
     const out = await runProgram(Picker, "x", {
       harnesses: { claudecli: openSession },
       model,
-      defaults: { allowedTools: [] },
+      defaults: { tools: [] },
     });
     expect(out).toBe(42);
   });
@@ -74,7 +74,7 @@ describe("claudecli adapter via fake claude (offline)", () => {
     const out = await runProgram(Picker, "x", {
       harnesses: { claudecli: openSession },
       model,
-      defaults: { allowedTools: [] },
+      defaults: { tools: [] },
     });
     expect(out).toBe(5);
   });
@@ -95,7 +95,7 @@ describe("claudecli adapter via fake claude (offline)", () => {
       runProgram(Picker, "x", {
         harnesses: { claudecli: openSession },
         model,
-        defaults: { allowedTools: [] },
+        defaults: { tools: [] },
       }),
     ).rejects.toBeInstanceOf(FoomtimeRepairExhaustedError);
   });
@@ -115,7 +115,7 @@ describe("claudecli adapter via fake claude (offline)", () => {
     const out = await runProgram(ForkProgram, "x", {
       harnesses: { claudecli: openSession },
       model,
-      defaults: { allowedTools: [] },
+      defaults: { tools: [] },
     });
     expect(out).toBe("blue");
   });
@@ -133,7 +133,7 @@ describe("claudecli adapter via fake claude (offline)", () => {
     const out = await runProgram(Picker, "x", {
       harnesses: { claudecli: openSession },
       model,
-      defaults: { allowedTools: [] },
+      defaults: { tools: [] },
       onEvent: (event) => {
         if (event.type === "span_end") totalTokens += event.usage.totalTokens;
       },

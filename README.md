@@ -15,7 +15,7 @@ Your code orchestrates. The model does only the fuzzy work.
 
 ---
 
-microfoom is a TypeScript runtime for **coordination engineering** — composing many agents, sessions, and model harnesses into a single coordination script that a lone prompt or agent loop can't express.
+Microfoom is a TypeScript runtime for **coordination engineering** — composing many agents, sessions, and model harnesses into a single coordination script that a lone prompt or agent loop can't express.
 
 ## Coordination engineering
 

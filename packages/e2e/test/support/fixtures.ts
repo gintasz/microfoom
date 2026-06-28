@@ -289,7 +289,7 @@ function base(ctx: RunContext) {
   return {
     harnesses: { default: ctx.openSession },
     model: ctx.model,
-    defaults: { allowedTools: [] as readonly string[] },
+    defaults: { tools: [] as readonly string[] },
   };
 }
 
@@ -438,7 +438,7 @@ export const fixtures: readonly Fixture[] = [
         () =>
           runProgram(RepairProgram, "x", {
             ...base(ctx),
-            defaults: { allowedTools: [], repairAttempts: 1 },
+            defaults: { tools: [], repairAttempts: 1 },
           }),
         isRepairExhausted,
         "repair-boundary-exhaust",
@@ -457,7 +457,7 @@ export const fixtures: readonly Fixture[] = [
     async exec(ctx) {
       const out = await runProgram(RepairProgram, "x", {
         ...base(ctx),
-        defaults: { allowedTools: [], repairAttempts: 1 },
+        defaults: { tools: [], repairAttempts: 1 },
       });
       assert(out === 5, `expected the repaired value 5, got ${out}`);
     },
@@ -489,7 +489,7 @@ export const fixtures: readonly Fixture[] = [
         () =>
           runProgram(ValueProgram, "x", {
             ...base(ctx),
-            defaults: { allowedTools: [], maxOutputTokens: 0 },
+            defaults: { tools: [], maxOutputTokens: 0 },
           }),
         isTokenLimit,
         "maxOutputTokens",
@@ -507,7 +507,7 @@ export const fixtures: readonly Fixture[] = [
             ...base(ctx),
             sourceFile: SOURCE,
             className: "DepthProgram",
-            defaults: { allowedTools: [], maxCallDepth: 0 },
+            defaults: { tools: [], maxCallDepth: 0 },
           }),
         isCallDepth,
         "maxCallDepth",
@@ -523,7 +523,7 @@ export const fixtures: readonly Fixture[] = [
         () =>
           runProgram(TextProgram, "x", {
             ...base(ctx),
-            defaults: { allowedTools: [], maxTurnDuration: "0.2s" },
+            defaults: { tools: [], maxTurnDuration: "0.2s" },
           }),
         isTimeout,
         "maxTurnDuration",
@@ -542,7 +542,7 @@ export const fixtures: readonly Fixture[] = [
         () =>
           runProgram(ValueProgram, "x", {
             ...base(ctx),
-            defaults: { allowedTools: [], maxBudgetUsd: 1e-9 },
+            defaults: { tools: [], maxBudgetUsd: 1e-9 },
           }),
         isBudgetOrUnenforceable,
         "maxBudgetUsd",

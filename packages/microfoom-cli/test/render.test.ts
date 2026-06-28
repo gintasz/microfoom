@@ -26,18 +26,18 @@ describe("renderRunTree", () => {
     const lines = out.split("\n");
 
     // Parent has children → ▼; child turn is a leaf → ▸; child indented two spaces.
-    expect(lines[0].startsWith("▼ main")).toBe(true);
-    expect(lines[1].startsWith("  ▸ discoverRoutes  routes=3")).toBe(true);
+    expect((lines[0] ?? "").startsWith("▼ main")).toBe(true);
+    expect((lines[1] ?? "").startsWith("  ▸ discoverRoutes  routes=3")).toBe(true);
     // Log line under the turn.
     expect(lines[2]).toContain("• 3 routes audited");
 
     // Metrics right-aligned to the width (rolled-up cost on main = child's 0.02;
     // sub-cent fraction renders at 4dp → $0.0200).
     expect(lines[0]).toContain("12s");
-    expect(lines[0].trimEnd().endsWith("$0.0200")).toBe(true);
-    expect(lines[0].length).toBe(64);
+    expect((lines[0] ?? "").trimEnd().endsWith("$0.0200")).toBe(true);
+    expect((lines[0] ?? "").length).toBe(64);
     expect(lines[1]).toContain("2s");
-    expect(lines[1].trimEnd().endsWith("$0.0200")).toBe(true);
+    expect((lines[1] ?? "").trimEnd().endsWith("$0.0200")).toBe(true);
   });
 
   it("folds repairs (⟳n) and an open-span ellipsis into the label", () => {

@@ -82,7 +82,7 @@ test("drag-selecting transcript text copies it to the clipboard via OSC 52", asy
   const match = term.out.getText().match(/]52;c;([A-Za-z0-9+/=]+)/);
   expect(match).not.toBeNull();
   expect(
-    Buffer.from((match as RegExpMatchArray)[1], "base64").toString("utf8").length,
+    Buffer.from((match as RegExpMatchArray)[1] ?? "", "base64").toString("utf8").length,
   ).toBeGreaterThan(0);
   expect(term.screen.getText()).toMatch(/copied \d+ chars/);
 });
