@@ -1,7 +1,7 @@
 <div align="center">
 
 <!-- Replace with your hero image (logo / banner). -->
-<img src="./assets/diagram.png" alt="microfoom" width="220" />
+<img src="https://github.com/gintasz/microfoom/raw/main/assets/diagram.png" alt="microfoom" width="640" />
 
 # microfoom
 
