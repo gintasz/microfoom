@@ -302,7 +302,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
       },
       (error: unknown) => {
         clearTimeout(timer);
-        reject(error as Error);
+        reject(error);
       },
     );
   });
@@ -349,48 +349,39 @@ export interface RunTurnParams {
   readonly span?: string;
 }
 
-/**
- * Run one text/value turn over a harness session. The harness owns the loop and
- * executes the FOOM tools; this interprets the captured outcome. Shared by the pi
- * session and the fake test session.
- */
-export async function runProgramTurn(params: RunTurnParams): Promise<TurnOutcome> {
-  if (params.caps.maxCallDepth !== undefined && params.ctx.depth() > params.caps.maxCallDepth) {
-    throw new FoomtimeCallDepthError(
-      `call depth ${params.ctx.depth()} exceeds maxCallDepth ${params.caps.maxCallDepth}`,
-    );
-  }
-  const capture: Capture = { has: false };
-  const repair = { count: 0 };
-  const emitter: Emitter = {
-    span: params.span ?? "turn",
-    ...(params.emit !== undefined ? { emit: params.emit } : {}),
-  };
-  const tools = buildTurnTools(
-    params.ctx,
-    params.mode,
-    capture,
-    repair,
-    params.caps.repairAttempts,
-    emitter,
-  );
+/** A writable SessionTurnRequest the coordinator builds up and re-prompts. */
+type MutableTurnRequest = { -readonly [K in keyof SessionTurnRequest]: SessionTurnRequest[K] };
 
-  const request: {
-    -readonly [K in keyof SessionTurnRequest]: SessionTurnRequest[K];
-  } = { systemPrompt: params.systemPrompt, prompt: params.prompt, tools };
+/** Assemble the harness turn request, adding the optional fields only when set
+ *  (so an absent value never overrides a harness/scope default). */
+function buildTurnRequest(
+  params: RunTurnParams,
+  tools: ReturnType<typeof buildTurnTools>,
+): MutableTurnRequest {
+  const request: MutableTurnRequest = {
+    systemPrompt: params.systemPrompt,
+    prompt: params.prompt,
+    tools,
+  };
   if (params.thinking !== undefined) request.thinking = params.thinking;
   if (params.allowedTools !== undefined) request.allowedTools = params.allowedTools;
-  if (params.caps.maxOutputTokens !== undefined)
+  if (params.caps.maxOutputTokens !== undefined) {
     request.maxOutputTokens = params.caps.maxOutputTokens;
+  }
   if (params.signal !== undefined) request.signal = params.signal;
-  // Bridge the harness's per-turn stream into the run's neutral event stream: token
-  // deltas reach onToken/onStreamChunk as before, and every chunk also folds into a
-  // transcript event (assistant prose/reasoning, tool calls) tagged with this span.
-  const onToken = params.onToken;
-  const onStreamChunk = params.onStreamChunk;
-  const emit = emitter.emit;
-  const span = emitter.span;
-  request.onEvent = (event: StreamEvent) => {
+  return request;
+}
+
+/** Bridge the harness's per-turn stream into the run's neutral event stream: token
+ *  deltas reach onToken/onStreamChunk, and every chunk also folds into a transcript
+ *  event (assistant prose/reasoning, tool calls/results) tagged with `span`. */
+function makeTurnEventForwarder(
+  span: string,
+  emit: Emitter["emit"],
+  onToken: RunTurnParams["onToken"],
+  onStreamChunk: RunTurnParams["onStreamChunk"],
+): (event: StreamEvent) => void {
+  return (event: StreamEvent) => {
     switch (event.type) {
       case "text":
         onStreamChunk?.(event.delta);
@@ -427,29 +418,49 @@ export async function runProgramTurn(params: RunTurnParams): Promise<TurnOutcome
         break;
     }
   };
+}
 
-  // The harness loop repairs invalid tool calls within a turn (an error tool-result
-  // makes the model retry). A value turn that ends with NO foom_return is repaired
-  // here: re-prompt the same session (transcript continues) up to repairAttempts.
-  let assistantText = "";
+/** Interpret one completed attempt's captured state: rethrow a fatal/`foom_throw`,
+ *  return the terminal outcome for a text turn or a captured value/done, or return
+ *  undefined to signal "no result yet — repair and retry". */
+function settleOutcome(
+  capture: Capture,
+  mode: RunTurnParams["mode"],
+  assistantText: string,
+): TurnOutcome | undefined {
+  if (capture.fatal !== undefined) throw capture.fatal;
+  if (capture.thrown !== undefined) {
+    throw new FoomtimeThrowError(capture.thrown.message, capture.thrown.code);
+  }
+  if (mode.kind === "text") return { kind: "text", text: assistantText };
+  if (capture.has) {
+    return mode.kind === "do" ? { kind: "do" } : { kind: "value", value: capture.value };
+  }
+  return undefined;
+}
+
+/**
+ * The repair loop: run the turn, interpret the outcome, and on a value/`do` turn
+ * with no foom_return re-prompt the same session (transcript continues) up to
+ * repairAttempts. The harness already repairs invalid tool calls within a turn.
+ */
+async function runTurnWithRepair(
+  params: RunTurnParams,
+  request: MutableTurnRequest,
+  capture: Capture,
+  emitter: Emitter,
+): Promise<TurnOutcome> {
   for (let attempt = 0; ; attempt += 1) {
-    emit?.({ type: "user_prompt", span, text: request.prompt });
+    emitter.emit?.({ type: "user_prompt", span: emitter.span, text: request.prompt });
     const turnPromise = params.session.runTurn(request);
     const result =
       params.caps.maxTurnDurationMs === undefined
         ? await turnPromise
         : await withTimeout(turnPromise, params.caps.maxTurnDurationMs);
-    assistantText = result.assistantText;
     enforceCaps(params.caps, params.fold(accountFromDelta(result.usage, params.ctx.depth())));
 
-    if (capture.fatal !== undefined) throw capture.fatal;
-    if (capture.thrown !== undefined) {
-      throw new FoomtimeThrowError(capture.thrown.message, capture.thrown.code);
-    }
-    if (params.mode.kind === "text") return { kind: "text", text: assistantText };
-    if (capture.has) {
-      return params.mode.kind === "do" ? { kind: "do" } : { kind: "value", value: capture.value };
-    }
+    const outcome = settleOutcome(capture, params.mode, result.assistantText);
+    if (outcome !== undefined) return outcome;
 
     if (attempt >= params.caps.repairAttempts) {
       throw new FoomtimeRepairExhaustedError(
@@ -463,4 +474,41 @@ export async function runProgramTurn(params: RunTurnParams): Promise<TurnOutcome
     request.prompt =
       params.mode.kind === "do" ? TOOL_RESULTS.missingDone : TOOL_RESULTS.missingReturn;
   }
+}
+
+/**
+ * Run one text/value turn over a harness session. The harness owns the loop and
+ * executes the FOOM tools; this interprets the captured outcome. Shared by the pi
+ * session and the fake test session.
+ */
+export async function runProgramTurn(params: RunTurnParams): Promise<TurnOutcome> {
+  if (params.caps.maxCallDepth !== undefined && params.ctx.depth() > params.caps.maxCallDepth) {
+    throw new FoomtimeCallDepthError(
+      `call depth ${params.ctx.depth()} exceeds maxCallDepth ${params.caps.maxCallDepth}`,
+    );
+  }
+  const capture: Capture = { has: false };
+  const repair = { count: 0 };
+  const emitter: Emitter = {
+    span: params.span ?? "turn",
+    ...(params.emit !== undefined ? { emit: params.emit } : {}),
+  };
+  const tools = buildTurnTools(
+    params.ctx,
+    params.mode,
+    capture,
+    repair,
+    params.caps.repairAttempts,
+    emitter,
+  );
+
+  const request = buildTurnRequest(params, tools);
+  request.onEvent = makeTurnEventForwarder(
+    emitter.span,
+    emitter.emit,
+    params.onToken,
+    params.onStreamChunk,
+  );
+
+  return runTurnWithRepair(params, request, capture, emitter);
 }

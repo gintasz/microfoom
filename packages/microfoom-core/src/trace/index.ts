@@ -212,6 +212,10 @@ export function buildRunTree(events: readonly AgentEvent[]): RunNode {
       case "annotate":
         Object.assign(ensure(map, event.span).annotations, event.attributes);
         break;
+      default:
+        // Transcript-only events (msg_*/tool_*/turn_meta/user_prompt) don't shape
+        // the span tree.
+        break;
     }
   }
 

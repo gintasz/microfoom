@@ -26,6 +26,7 @@ import type { HarnessSession, HarnessSessionOptions, OpenSession } from "./sessi
 import {
   type ProgramTurnContext,
   type ResolvedCaps,
+  type RunTurnParams,
   runProgramTurn,
   type TurnMode,
 } from "./tools.js";
@@ -136,7 +137,7 @@ const contexts = new WeakMap<object, AgentProgramContext<object>>();
 
 /** Internal: the runner wires `this.agent` after constructing a program. */
 export function attachContext<P extends object>(program: P, context: AgentProgramContext<P>): void {
-  contexts.set(program, context as AgentProgramContext<object>);
+  contexts.set(program, context);
 }
 
 /** The program base class. Extend via Program(schema) for a typed input. */
@@ -466,6 +467,89 @@ interface SessionSource {
   readonly guard?: { inFlight: boolean };
 }
 
+// A value/do turn must terminate with foom_return; nudge the model at the end of
+// its prompt. Prose turns just stream text, so they need no notice.
+function buildTurnPrompt(mode: TurnMode, prompt: string): string {
+  if (mode.kind === "value") return `${prompt}\n\n${VALUE_TURN_NOTICE}`;
+  if (mode.kind === "do") return `${prompt}\n\n${DO_TURN_NOTICE}`;
+  return prompt;
+}
+
+/** Emit the turn's span_start + turn_start, parenting under the pinned span or the
+ *  ambient call-structure span. */
+function emitTurnStart(
+  runtime: Runtime,
+  span: string,
+  mode: TurnMode,
+  options: AgentOptions,
+  parentSpan: string | undefined,
+): void {
+  const parent = parentSpan ?? runtime.spanALS.getStore();
+  emitAll(runtime, {
+    type: "span_start",
+    span,
+    name: options.label ?? mode.kind,
+    kind: "turn",
+    ...(parent !== undefined ? { parent } : {}),
+  });
+  emitAll(
+    runtime,
+    options.label !== undefined
+      ? { type: "turn_start", span, label: options.label }
+      : { type: "turn_start", span },
+  );
+}
+
+/** Emit the turn's span_end carrying its duration and folded usage. */
+function emitTurnEnd(
+  runtime: Runtime,
+  span: string,
+  startedAt: number,
+  turnDelta: UsageAccount,
+): void {
+  emitAll(runtime, {
+    type: "span_end",
+    span,
+    durationMs: Date.now() - startedAt,
+    usage: toAgentUsage(turnDelta),
+  });
+}
+
+/** Marshal the RunTurnParams for one turn: the per-turn fold/emit wiring plus the
+ *  optional fields added only when set (so an absent value never overrides a
+ *  resolved scope default). */
+function buildRunTurnParams(args: {
+  session: HarnessSession;
+  prepared: ReturnType<typeof prepare>;
+  turnPrompt: string;
+  mode: TurnMode;
+  runtime: Runtime;
+  span: string;
+  traced: boolean;
+  options: AgentOptions;
+  onStreamChunk: ((chunk: string) => void) | undefined;
+  signal: AbortSignal;
+  fold: (delta: UsageAccount) => UsageAccount;
+}): RunTurnParams {
+  const { prepared, runtime, span, traced, options, onStreamChunk } = args;
+  return {
+    session: args.session,
+    systemPrompt: prepared.systemPrompt,
+    prompt: args.turnPrompt,
+    mode: args.mode,
+    ctx: buildContext(runtime),
+    caps: prepared.caps,
+    fold: args.fold,
+    ...(traced ? { emit: (event: AgentEvent) => emitAll(runtime, event) } : {}),
+    span,
+    ...(prepared.thinking !== undefined ? { thinking: prepared.thinking } : {}),
+    ...(prepared.allowedTools !== undefined ? { allowedTools: prepared.allowedTools } : {}),
+    ...(options.onToken !== undefined ? { onToken: options.onToken } : {}),
+    ...(onStreamChunk !== undefined ? { onStreamChunk } : {}),
+    signal: args.signal,
+  };
+}
+
 // `parentSpan` pins this channel's turns under a specific span (a scope's own
 // span). When absent, the parent is taken from the call-structure (AsyncLocalStorage)
 // — the right default for `this.agent` turns inside main or a method.
@@ -497,30 +581,8 @@ function makeRun(
     const traced = runtime.listeners.size > 0;
     // A turn is a span leaf: its usage is the real harness delta(s) folded here.
     let turnDelta = emptyUsage;
-    if (traced) {
-      const parent = parentSpan ?? runtime.spanALS.getStore();
-      emitAll(runtime, {
-        type: "span_start",
-        span,
-        name: options.label ?? mode.kind,
-        kind: "turn",
-        ...(parent !== undefined ? { parent } : {}),
-      });
-      emitAll(
-        runtime,
-        options.label !== undefined
-          ? { type: "turn_start", span, label: options.label }
-          : { type: "turn_start", span },
-      );
-    }
-    // A value/do turn must terminate with foom_return; nudge the model at the end of
-    // its prompt (prose turns just stream text, so they need no notice).
-    const turnPrompt =
-      mode.kind === "value"
-        ? `${prompt}\n\n${VALUE_TURN_NOTICE}`
-        : mode.kind === "do"
-          ? `${prompt}\n\n${DO_TURN_NOTICE}`
-          : prompt;
+    if (traced) emitTurnStart(runtime, span, mode, options, parentSpan);
+    const turnPrompt = buildTurnPrompt(mode, prompt);
     const startedAt = Date.now();
     try {
       const session = await source.get();
@@ -533,42 +595,35 @@ function makeRun(
           systemPrompt: session.systemPrompt?.(prepared.systemPrompt) ?? prepared.systemPrompt,
         });
       }
+      const fold = (delta: UsageAccount): UsageAccount => {
+        if (traced) turnDelta = combineUsage(turnDelta, delta);
+        runtime.usage = combineUsage(runtime.usage, delta);
+        return runtime.usage;
+      };
       // Run the turn body under this span so a method the agent foom_calls
       // mid-turn (and its own turns) nest beneath it.
       return await runtime.spanALS.run(span, () =>
-        runProgramTurn({
-          session,
-          systemPrompt: prepared.systemPrompt,
-          prompt: turnPrompt,
-          mode,
-          ctx: buildContext(runtime),
-          caps: prepared.caps,
-          fold: (delta) => {
-            if (traced) turnDelta = combineUsage(turnDelta, delta);
-            runtime.usage = combineUsage(runtime.usage, delta);
-            return runtime.usage;
-          },
-          ...(traced ? { emit: (event: AgentEvent) => emitAll(runtime, event) } : {}),
-          span,
-          ...(prepared.thinking !== undefined ? { thinking: prepared.thinking } : {}),
-          ...(prepared.allowedTools !== undefined ? { allowedTools: prepared.allowedTools } : {}),
-          ...(options.onToken !== undefined ? { onToken: options.onToken } : {}),
-          ...(onStreamChunk !== undefined ? { onStreamChunk } : {}),
-          signal,
-        }),
+        runProgramTurn(
+          buildRunTurnParams({
+            session,
+            prepared,
+            turnPrompt,
+            mode,
+            runtime,
+            span,
+            traced,
+            options,
+            onStreamChunk,
+            signal,
+            fold,
+          }),
+        ),
       );
     } catch (error) {
       if (signal.aborted) throw new FoomtimeCancelledError("the agent run was aborted");
       throw error;
     } finally {
-      if (traced) {
-        emitAll(runtime, {
-          type: "span_end",
-          span,
-          durationMs: Date.now() - startedAt,
-          usage: toAgentUsage(turnDelta),
-        });
-      }
+      if (traced) emitTurnEnd(runtime, span, startedAt, turnDelta);
       end();
     }
   };
@@ -613,9 +668,7 @@ function makeRun(
       return makeResult({
         run: async (signal) => {
           const outcome = await drive({ kind: "value", schema }, prompt, signal);
-          return outcome.kind === "value"
-            ? (outcome.value as StandardSchemaV1.InferOutput<typeof schema>)
-            : (undefined as StandardSchemaV1.InferOutput<typeof schema>);
+          return outcome.kind === "value" ? outcome.value : undefined;
         },
         usage: () => readUsage(runtime),
       });
@@ -700,11 +753,7 @@ function makeSession(runtime: Runtime, options: AgentOptions): AgentSession {
 }
 
 function optionsModel(runtime: Runtime, options: AgentOptions): string {
-  const merged = mergeConfigChain(
-    [runtime.defaults, runtime.classConfig, pickConfig(options)].filter(
-      (c): c is AgentConfig => c !== undefined,
-    ),
-  );
+  const merged = mergeConfigChain([runtime.defaults, runtime.classConfig, pickConfig(options)]);
   if (merged.model === undefined) throw new FoomtimeConfigError("no model configured");
   return merged.model;
 }
@@ -720,11 +769,7 @@ function openOptions(
   model: string,
   options: AgentOptions,
 ): HarnessSessionOptions {
-  const merged = mergeConfigChain(
-    [runtime.defaults, runtime.classConfig, pickConfig(options)].filter(
-      (c): c is AgentConfig => c !== undefined,
-    ),
-  );
+  const merged = mergeConfigChain([runtime.defaults, runtime.classConfig, pickConfig(options)]);
   return {
     model,
     ...(merged.skills !== undefined ? { skills: merged.skills } : {}),
@@ -863,6 +908,58 @@ function makeContext<P extends object>(
  * });
  * ```
  */
+/** Validate raw program input against the program's optional input schema (the
+ *  static `input` on the class), returning the parsed value (or the raw input when
+ *  no schema is declared). */
+async function validateProgramInput(
+  ProgramClass: abstract new () => FoomtimeProgram<never, unknown>,
+  rawInput: unknown,
+): Promise<unknown> {
+  const inputSchema = (ProgramClass as unknown as { input?: StandardSchemaV1 }).input;
+  if (inputSchema === undefined) return rawInput;
+  const validated = await Promise.resolve(inputSchema["~standard"].validate(rawInput));
+  if (validated.issues !== undefined) {
+    throw new FoomtimeInputError("program input failed its schema", { data: validated.issues });
+  }
+  return validated.value;
+}
+
+/** Resolve the default harness: an explicit name wins (and must be registered); a
+ *  sole registered harness is unambiguous; otherwise undefined, so an unselected
+ *  harness fails loudly rather than guessing. Throws if none are registered. */
+function resolveDefaultHarness(options: RunProgramOptions): string | undefined {
+  const harnessNames = Object.keys(options.harnesses);
+  if (harnessNames.length === 0) {
+    throw new FoomtimeConfigError("no harnesses registered (run options.harnesses is empty)");
+  }
+  const explicit = options.defaultHarness;
+  if (explicit !== undefined && options.harnesses[explicit] === undefined) {
+    throw new FoomtimeConfigError(
+      `defaultHarness "${explicit}" is not a registered harness (have: ${harnessNames.join(", ")})`,
+    );
+  }
+  if (explicit !== undefined) return explicit;
+  return harnessNames.length === 1 ? harnessNames[0] : undefined;
+}
+
+/** Race main() against the program's maxProgramDuration, always clearing the timer. */
+async function runWithProgramTimeout<T>(main: Promise<T>, maxDuration: string): Promise<T> {
+  const ms = durationToMs(maxDuration as Parameters<typeof durationToMs>[0]);
+  if (ms === undefined) throw new FoomtimeConfigError(`invalid maxProgramDuration: ${maxDuration}`);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(
+      () => reject(new FoomtimeTimeoutError(`program exceeded ${maxDuration}`)),
+      ms,
+    );
+  });
+  try {
+    return await Promise.race([main, timeout]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
 export async function runProgram<P extends FoomtimeProgram<never, unknown>>(
   ProgramClass: abstract new () => P,
   rawInput: unknown,
@@ -872,32 +969,9 @@ export async function runProgram<P extends FoomtimeProgram<never, unknown>>(
   const Ctor = ProgramClass as unknown as new () => FoomtimeProgram<unknown, Result>;
   const instance = new Ctor();
 
-  const inputSchema = (ProgramClass as unknown as { input?: StandardSchemaV1 }).input;
-  let input: unknown = rawInput;
-  if (inputSchema !== undefined) {
-    const validated = await Promise.resolve(inputSchema["~standard"].validate(rawInput));
-    if (validated.issues !== undefined) {
-      throw new FoomtimeInputError("program input failed its schema", { data: validated.issues });
-    }
-    input = validated.value;
-  }
-
+  const input = await validateProgramInput(ProgramClass, rawInput);
   const classMeta = readClassMeta(instance);
-
-  // Resolve the default harness once: an explicit name wins (and must exist); a
-  // sole registered harness is unambiguous; otherwise leave it unset so an
-  // unselected harness fails loudly rather than guessing a positional default.
-  const harnessNames = Object.keys(options.harnesses);
-  if (harnessNames.length === 0) {
-    throw new FoomtimeConfigError("no harnesses registered (run options.harnesses is empty)");
-  }
-  let defaultHarness = options.defaultHarness;
-  if (defaultHarness !== undefined && options.harnesses[defaultHarness] === undefined) {
-    throw new FoomtimeConfigError(
-      `defaultHarness "${defaultHarness}" is not a registered harness (have: ${harnessNames.join(", ")})`,
-    );
-  }
-  if (defaultHarness === undefined && harnessNames.length === 1) defaultHarness = harnessNames[0];
+  const defaultHarness = resolveDefaultHarness(options);
 
   const defaults = options.defaults !== undefined ? pickConfig(options.defaults) : {};
   if (defaults.model === undefined) defaults.model = options.model;
@@ -937,20 +1011,5 @@ export async function runProgram<P extends FoomtimeProgram<never, unknown>>(
   const main = withSpan(runtime, "main", "program", () => instance.main(input as never));
   const maxDuration = (ProgramClass as unknown as { maxProgramDuration?: string })
     .maxProgramDuration;
-  if (maxDuration === undefined) return main;
-
-  const ms = durationToMs(maxDuration as Parameters<typeof durationToMs>[0]);
-  if (ms === undefined) throw new FoomtimeConfigError(`invalid maxProgramDuration: ${maxDuration}`);
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<never>((_resolve, reject) => {
-    timer = setTimeout(
-      () => reject(new FoomtimeTimeoutError(`program exceeded ${maxDuration}`)),
-      ms,
-    );
-  });
-  try {
-    return await Promise.race([main, timeout]);
-  } finally {
-    if (timer !== undefined) clearTimeout(timer);
-  }
+  return maxDuration === undefined ? main : runWithProgramTimeout(main, maxDuration);
 }

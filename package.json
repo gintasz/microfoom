@@ -41,11 +41,13 @@
     "format:check": "biome format .",
     "lint": "biome check --error-on-warnings .",
     "lint:fix": "biome check --write .",
+    "lint:types": "eslint .",
     "arch": "depcruise packages --config .dependency-cruiser.cjs",
     "ast": "ast-grep scan",
     "spell": "cspell --no-progress \"**/*.{ts,tsx,md,json}\"",
     "deps:check": "syncpack lint",
     "deps:fix": "syncpack fix",
+    "audit": "pnpm audit --audit-level=high",
     "dead": "knip",
     "dup": "jscpd packages",
     "api": "pnpm -r --if-present run api",
@@ -59,7 +61,7 @@
     "release": "pnpm run build && node scripts/sync-package-docs.mjs && changeset publish && node scripts/sync-package-docs.mjs --clean",
     "link": "pnpm run build && pnpm config set global-bin-dir \"$(npm prefix -g)/bin\" && cd packages/microfoom-cli && pnpm link --global",
     "unlink": "cd packages/microfoom-cli && pnpm unlink --global",
-    "check": "pnpm run typecheck && pnpm run format:check && pnpm run lint && pnpm run arch && pnpm run ast && pnpm run spell && pnpm run deps:check && pnpm run dead && pnpm run dup && pnpm run build && pnpm run api:check && pnpm run docs:check && pnpm run test",
+    "check": "pnpm run typecheck && pnpm run format:check && pnpm run lint && pnpm run lint:types && pnpm run arch && pnpm run ast && pnpm run spell && pnpm run deps:check && pnpm run audit && pnpm run dead && pnpm run dup && pnpm run build && pnpm run api:check && pnpm run docs:check && pnpm run test",
     "prepare": "lefthook install"
   },
   "devDependencies": {

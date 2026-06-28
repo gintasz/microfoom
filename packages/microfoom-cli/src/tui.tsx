@@ -36,6 +36,69 @@ function parseInput(raw: string): unknown {
   return trimmed;
 }
 
+/** Open a session on the named harness (pi gets the omit-base-prompt option), or
+ *  undefined when the name isn't a known harness. */
+function openTuiHarness(harnessName: string, omitHarnessPrompt: boolean): OpenSession | undefined {
+  const makeHarness = HARNESSES[harnessName];
+  if (makeHarness === undefined) return undefined;
+  return harnessName === "pi"
+    ? createPiOpenSession({ omitHarnessBasePrompt: omitHarnessPrompt })
+    : makeHarness();
+}
+
+/** Theme precedence: explicit override (flag/env) → terminal OSC query → dark. The
+ *  OSC query is what correctly picks up VS Code's light terminal (COLORFGBG is
+ *  unreliable there), so we ask the terminal itself rather than guessing. */
+async function resolveTheme(
+  override: string | undefined,
+  renderer: Awaited<ReturnType<typeof createCliRenderer>>,
+): Promise<ThemeMode> {
+  const detected =
+    override === "light" || override === "dark" ? override : await renderer.waitForThemeMode(300);
+  return detected === "light" ? "light" : "dark";
+}
+
+/** Render the program input for the meta header: strings as-is, anything else as JSON. */
+function formatInputMeta(input: unknown): string {
+  if (input === undefined) return "";
+  return typeof input === "string" ? input : JSON.stringify(input);
+}
+
+/** The per-run defaults from CLI flags, each field added only when supplied. */
+function buildTuiDefaults(
+  thinking: string | undefined,
+  tools: readonly string[] | undefined,
+  skills: readonly string[] | undefined,
+  plugins: readonly string[] | undefined,
+): {
+  thinking?: string;
+  tools?: readonly string[];
+  skills?: readonly string[];
+  plugins?: readonly string[];
+} {
+  return {
+    ...(thinking !== undefined ? { thinking } : {}),
+    ...(tools !== undefined ? { tools } : {}),
+    ...(skills !== undefined ? { skills } : {}),
+    ...(plugins !== undefined ? { plugins } : {}),
+  };
+}
+
+/** Run the program and report its result (or failure) into the TUI store. */
+async function runIntoStore(
+  ProgramClass: unknown,
+  input: unknown,
+  runOptions: Parameters<typeof runProgram>[2],
+  store: ReturnType<typeof createStore>,
+): Promise<void> {
+  try {
+    const result: unknown = await runProgram(ProgramClass as never, input, runOptions);
+    store.done(typeof result === "string" ? result : JSON.stringify(result), undefined);
+  } catch (error) {
+    store.done(undefined, errMessage(error));
+  }
+}
+
 async function main(): Promise<void> {
   const { values, positionals } = parseArgs({
     allowPositionals: true,
@@ -67,8 +130,8 @@ async function main(): Promise<void> {
   const harnessName = values.harness ?? "pi";
   const model =
     values.model ?? process.env.MICROFOOM_MODEL ?? "openrouter/deepseek/deepseek-v4-flash";
-  const makeHarness = HARNESSES[harnessName];
-  if (makeHarness === undefined) {
+  const openSession = openTuiHarness(harnessName, values["omit-harness-prompt"]);
+  if (openSession === undefined) {
     process.stderr.write(`microfoom tui: unknown harness "${harnessName}"\n`);
     process.exit(1);
   }
@@ -82,16 +145,12 @@ async function main(): Promise<void> {
           .filter((name) => name.length > 0);
   const skills = toList(values.skills);
   const plugins = toList(values.plugins);
-  const openSession =
-    harnessName === "pi"
-      ? createPiOpenSession({ omitHarnessBasePrompt: values["omit-harness-prompt"] })
-      : makeHarness();
   const store = createStore();
   store.setMeta({
     file: sourceFile,
     model,
     harness: harnessName,
-    input: input === undefined ? "" : String(input),
+    input: formatInputMeta(input),
   });
 
   // Mount the UI first so it shows immediately, then drive the run into the store.
@@ -99,10 +158,7 @@ async function main(): Promise<void> {
   // Theme precedence: explicit override (flag/env) → terminal OSC query → dark.
   // The OSC query is what correctly picks up VS Code's light terminal (COLORFGBG
   // is unreliable there), so we ask the terminal itself rather than guessing.
-  const override = values.theme ?? process.env.MICROFOOM_TUI_THEME;
-  const detected =
-    override === "light" || override === "dark" ? override : await renderer.waitForThemeMode(300);
-  const mode: ThemeMode = detected === "light" ? "light" : "dark";
+  const mode = await resolveTheme(values.theme ?? process.env.MICROFOOM_TUI_THEME, renderer);
   renderer.setBackgroundColor(paletteFor(mode).bg);
   // `r` exits with a sentinel; the node launcher respawns a fresh bun process so
   // the re-run picks up source edits (bun can't reload a module in-process).
@@ -134,24 +190,19 @@ async function main(): Promise<void> {
     return;
   }
   const tools = toList(values.tools);
-  const defaults = {
-    ...(values.thinking !== undefined ? { thinking: values.thinking } : {}),
-    ...(tools !== undefined ? { tools } : {}),
-    ...(skills !== undefined ? { skills } : {}),
-    ...(plugins !== undefined ? { plugins } : {}),
-  };
-  try {
-    const result = await runProgram(ProgramClass as never, input, {
+  const defaults = buildTuiDefaults(values.thinking, tools, skills, plugins);
+  await runIntoStore(
+    ProgramClass,
+    input,
+    {
       harnesses: { [harnessName]: openSession },
       model,
       sourceFile,
       onEvent: (event: AgentEvent) => store.push(event),
       ...(Object.keys(defaults).length > 0 ? { defaults } : {}),
-    });
-    store.done(typeof result === "string" ? result : JSON.stringify(result), undefined);
-  } catch (error) {
-    store.done(undefined, errMessage(error));
-  }
+    },
+    store,
+  );
 }
 
 function errMessage(error: unknown): string {

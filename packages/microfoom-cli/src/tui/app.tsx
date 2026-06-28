@@ -59,6 +59,93 @@ function ellipsize(text: string, max: number): string {
   return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
 }
 
+/** The span to select when moving `delta` rows from the current selection; wraps
+ *  from no-selection to the first (down) or last (up) row. */
+function selectRelative(
+  rows: readonly TreeRow[],
+  selected: string | undefined,
+  delta: number,
+): string | undefined {
+  const index = rows.findIndex((r) => r.span === selected);
+  const next = index < 0 ? (delta > 0 ? 0 : rows.length - 1) : index + delta;
+  return rows[Math.max(0, Math.min(rows.length - 1, next))]?.span;
+}
+
+/** The App state a key binding can act on (passed to {@link handleKey}). */
+interface KeyActions {
+  readonly renderer: ReturnType<typeof useRenderer>;
+  readonly rows: readonly TreeRow[];
+  readonly selected: string | undefined;
+  readonly setSelected: (span: string | undefined) => void;
+  readonly setShowSystem: (update: (v: boolean) => boolean) => void;
+  readonly setShowNotices: (update: (v: boolean) => boolean) => void;
+  readonly onRerun: () => void;
+}
+
+/** Key bindings: quit, clear selection, re-run, toggle system/notices, navigate. */
+function handleKey(key: { readonly name?: string; readonly ctrl?: boolean }, a: KeyActions): void {
+  const name = key.name;
+  if (name === "q" || (key.ctrl === true && name === "c")) {
+    a.renderer.destroy();
+    process.exit(0);
+  } else if (name === "a" || name === "escape") {
+    a.setSelected(undefined);
+  } else if (name === "r") {
+    a.onRerun();
+  } else if (name === "s") {
+    a.setShowSystem((v) => !v);
+  } else if (name === "m") {
+    a.setShowNotices((v) => !v);
+  } else if (name === "up" || name === "k" || name === "down" || name === "j") {
+    const span = selectRelative(a.rows, a.selected, name === "up" || name === "k" ? -1 : 1);
+    if (span !== undefined) a.setSelected(span);
+  }
+}
+
+/** The header status dot color + label for the run's current status. */
+function statusStyle(status: string, palette: Palette): { color: string; text: string } {
+  if (status === "error") return { color: palette.error, text: "● error" };
+  if (status === "done") return { color: palette.ok, text: "● done" };
+  return { color: palette.accent, text: "● running" };
+}
+
+/** Stamp the first time each span is seen, so an open span can report live elapsed. */
+function stampFirstSeen(
+  rows: readonly TreeRow[],
+  firstSeen: Map<string, number>,
+  now: number,
+): void {
+  for (const row of rows) {
+    if (!firstSeen.has(row.span)) firstSeen.set(row.span, now);
+  }
+}
+
+/** The contextual header clock. With a span selected, reflect THAT span (its exact
+ *  duration once settled, or a live tick while open). With nothing selected, fall
+ *  back to whole-run elapsed while running, and hide when done. */
+function computeClock(args: {
+  selected: string | undefined;
+  tree: RunNode;
+  now: number;
+  firstSeen: Map<string, number>;
+  startedAt: number;
+  status: string;
+}): { text: string; span: boolean } | undefined {
+  const { selected, tree, now, firstSeen, startedAt, status } = args;
+  if (selected !== undefined) {
+    const node = findNode(tree, selected);
+    if (node !== undefined) {
+      const ms =
+        node.settled && node.durationMs !== undefined
+          ? node.durationMs
+          : now - (firstSeen.get(selected) ?? startedAt);
+      return { text: fmtDuration(ms), span: true };
+    }
+  }
+  if (status === "running") return { text: fmtDuration(now - startedAt), span: false };
+  return undefined;
+}
+
 export function App({
   store,
   initialMode,
@@ -93,7 +180,7 @@ export function App({
   useEffect(() => {
     const sync = (): void => {
       const detected = renderer.themeMode;
-      if (detected !== null && detected !== undefined) setMode(detected);
+      if (detected !== null) setMode(detected);
     };
     sync();
     renderer.on("theme_mode", sync);
@@ -136,59 +223,29 @@ export function App({
     return list;
   }, [transcript, focusSpans, showSystem]);
 
-  useKeyboard((key) => {
-    const name = key.name;
-    if (name === "q" || (key.ctrl && name === "c")) {
-      renderer.destroy();
-      process.exit(0);
-    } else if (name === "a" || name === "escape") {
-      setSelected(undefined);
-    } else if (name === "r") {
-      onRerun();
-    } else if (name === "s") {
-      setShowSystem((v) => !v);
-    } else if (name === "m") {
-      setShowNotices((v) => !v);
-    } else if (name === "up" || name === "k" || name === "down" || name === "j") {
-      const delta = name === "up" || name === "k" ? -1 : 1;
-      const index = rows.findIndex((r) => r.span === selected);
-      const next = index < 0 ? (delta > 0 ? 0 : rows.length - 1) : index + delta;
-      const row = rows[Math.max(0, Math.min(rows.length - 1, next))];
-      if (row !== undefined) setSelected(row.span);
-    }
-  });
+  useKeyboard((key) =>
+    handleKey(key, {
+      renderer,
+      rows,
+      selected,
+      setSelected,
+      setShowSystem,
+      setShowNotices,
+      onRerun,
+    }),
+  );
 
   const traceWidth = Math.max(26, Math.floor(width * 0.4));
-  const statusColor =
-    snapshot.status === "error"
-      ? palette.error
-      : snapshot.status === "done"
-        ? palette.ok
-        : palette.accent;
-  const statusText =
-    snapshot.status === "error" ? "● error" : snapshot.status === "done" ? "● done" : "● running";
-  // Stamp the first time we see each span so an open span can report live elapsed.
-  for (const row of rows)
-    if (!firstSeen.current.has(row.span)) firstSeen.current.set(row.span, now);
-
-  // Contextual clock. With a span selected, the header reflects THAT span: its exact
-  // duration once settled, or a live tick while it's still open. With nothing
-  // selected, it falls back to whole-run elapsed while running, and hides when done
-  // (the footer + main row already carry the final total — no need to duplicate).
-  const clock = ((): { text: string; span: boolean } | undefined => {
-    if (selected !== undefined) {
-      const node = findNode(tree, selected);
-      if (node !== undefined) {
-        const ms =
-          node.settled && node.durationMs !== undefined
-            ? node.durationMs
-            : now - (firstSeen.current.get(selected) ?? startedAt);
-        return { text: fmtDuration(ms), span: true };
-      }
-    }
-    if (snapshot.status === "running") return { text: fmtDuration(now - startedAt), span: false };
-    return undefined;
-  })();
+  const { color: statusColor, text: statusText } = statusStyle(snapshot.status, palette);
+  stampFirstSeen(rows, firstSeen.current, now);
+  const clock = computeClock({
+    selected,
+    tree,
+    now,
+    firstSeen: firstSeen.current,
+    startedAt,
+    status: snapshot.status,
+  });
   const file = snapshot.meta?.file.split("/").pop() ?? "—";
 
   return (
@@ -418,7 +475,9 @@ function describe(
 
 function prettyArgs(args: unknown): string {
   try {
-    return ellipsizeBlock(JSON.stringify(args, null, 2) ?? String(args), 4000);
+    // The catch is the fallback: if JSON.stringify yields undefined (functions,
+    // symbols), ellipsizeBlock throws and we stringify directly below.
+    return ellipsizeBlock(JSON.stringify(args, null, 2), 4000);
   } catch {
     return String(args);
   }
