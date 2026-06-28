@@ -8,7 +8,10 @@
 // Modes: interactive TTY → live panel by default; piped/redirected → auto-headless
 // (no ANSI). Force with --panel / --headless. `--harness fake` runs offline (no model).
 
-import { isAbsolute, resolve } from "node:path";
+import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
+import { dirname, isAbsolute, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { type OpenSession, runProgram } from "@microfoom/core";
 import { type AgentEvent, buildRunTree } from "@microfoom/core/trace";
@@ -17,6 +20,7 @@ import { fakeOpenSession } from "./fake.js";
 import { fmtSummary } from "./format.js";
 import { loadProgram } from "./loader.js";
 import { attachPanel } from "./panel.js";
+import { RERUN_EXIT_CODE } from "./tui/rerun.js";
 
 // Selectable harnesses (composition root — the one place names map to adapters).
 // Add new harness support here; the program then runs on `--harness <name>`.
@@ -34,9 +38,18 @@ Usage:
 
 Options:
   --harness <name>    harness to run on: pi (default) | fake (offline stub, no model)
+  --omit-harness-prompt   send the model ONLY microfoom's prompt (drop the harness
+                      base prompt — pi's coding-agent persona + project context)
   --model <id>        model id (default: $MICROFOOM_MODEL or a deepseek default)
   --thinking <level>  off | minimal | low | medium | high | xhigh
+  --allowed-tools <a,b>   comma-separated allowlist of harness tools (default: all; "" = none;
+                      FOOM tools always available)
   --input <value>     program input (alternative to the positional)
+  --tui               open the interactive two-pane inspector (trace tree + live
+                      transcript; mouse + scroll). Runs under bun; stays open when
+                      the run finishes — press q to quit, r to re-run (picks up edits).
+  --system-prompt     with --tui: show each turn's full system prompt (toggle: s; default off)
+  --full-user-msg     with --tui: show the full user message incl. appended instructions (toggle: m; default off)
   --panel             force the live run panel (even when piped)
   --headless          no panel, no ANSI — result only (integrations, CI)
   --json              print the result as JSON to stdout (implies quiet)
@@ -63,6 +76,91 @@ function stringifyResult(result: unknown): string {
   return typeof result === "string" ? result : JSON.stringify(result);
 }
 
+/** Parse a `--allowed-tools` value: undefined → all; "" → none ([]); else CSV. */
+function parseAllowedTools(raw: string | undefined): readonly string[] | undefined {
+  if (raw === undefined) return undefined;
+  return raw
+    .split(",")
+    .map((name) => name.trim())
+    .filter((name) => name.length > 0);
+}
+
+/** Build the run-level config defaults from CLI flags (only set fields present). */
+function cliDefaults(thinking: string | undefined, allowedTools: readonly string[] | undefined) {
+  return {
+    ...(thinking !== undefined ? { thinking } : {}),
+    ...(allowedTools !== undefined ? { allowedTools } : {}),
+  };
+}
+
+/** Locate the TUI entry next to this module: `tui.tsx` in dev (src), `tui.js` built. */
+function resolveTuiEntry(): string | undefined {
+  const here = dirname(fileURLToPath(import.meta.url));
+  for (const name of ["tui.tsx", "tui.js"]) {
+    const candidate = resolve(here, name);
+    if (existsSync(candidate)) return candidate;
+  }
+  return undefined;
+}
+
+interface TuiArgs {
+  readonly sourceFile: string;
+  readonly input: string | undefined;
+  readonly harness: string | undefined;
+  readonly model: string | undefined;
+  readonly thinking: string | undefined;
+  readonly allowedTools: string | undefined;
+  readonly systemPrompt: boolean;
+  readonly fullUserMsg: boolean;
+  readonly omitHarnessPrompt: boolean;
+}
+
+/** Spawn one bun TUI process; resolve with its exit code (or 1 if bun is missing). */
+function spawnTui(entry: string, argv: readonly string[]): Promise<number> {
+  return new Promise<number>((resolveCode) => {
+    const child = spawn("bun", [entry, ...argv], { stdio: "inherit" });
+    child.on("error", (error: NodeJS.ErrnoException) => {
+      const hint =
+        error.code === "ENOENT"
+          ? "bun not found on PATH — install bun (https://bun.sh) to use --tui"
+          : error.message;
+      process.stderr.write(`microfoom: ${hint}\n`);
+      resolveCode(1);
+    });
+    child.on("exit", (code) => resolveCode(code ?? 0));
+  });
+}
+
+/**
+ * Launch the bun TUI, inheriting the terminal. Pressing `r` in the TUI exits with
+ * RERUN_EXIT_CODE; we respawn a fresh process so the re-run reflects source edits
+ * (bun can't reload a module in-process). Any other exit code ends the session.
+ */
+async function runTui(args: TuiArgs): Promise<number> {
+  const entry = resolveTuiEntry();
+  if (entry === undefined) {
+    process.stderr.write("microfoom: TUI entry not found (build the cli package)\n");
+    return 1;
+  }
+  const argv: string[] = [];
+  if (args.input !== undefined) argv.push(args.input);
+  if (args.harness !== undefined) argv.push("--harness", args.harness);
+  if (args.model !== undefined) argv.push("--model", args.model);
+  if (args.thinking !== undefined) argv.push("--thinking", args.thinking);
+  if (args.allowedTools !== undefined) argv.push("--allowed-tools", args.allowedTools);
+  if (args.omitHarnessPrompt) argv.push("--omit-harness-prompt");
+  if (args.systemPrompt) argv.push("--system-prompt");
+  if (args.fullUserMsg) argv.push("--full-user-msg");
+  // Theme is detected by the bun TUI itself via an OSC query (reliable in VS Code);
+  // a user can still force it with MICROFOOM_TUI_THEME, which the child inherits.
+  argv.unshift(args.sourceFile);
+
+  for (;;) {
+    const code = await spawnTui(entry, argv);
+    if (code !== RERUN_EXIT_CODE) return code;
+  }
+}
+
 async function run(): Promise<number> {
   const { values, positionals } = parseArgs({
     allowPositionals: true,
@@ -70,7 +168,12 @@ async function run(): Promise<number> {
       harness: { type: "string" },
       model: { type: "string" },
       thinking: { type: "string" },
+      "allowed-tools": { type: "string" },
       input: { type: "string" },
+      tui: { type: "boolean", default: false },
+      "omit-harness-prompt": { type: "boolean", default: false },
+      "system-prompt": { type: "boolean", default: false },
+      "full-user-msg": { type: "boolean", default: false },
       panel: { type: "boolean", default: false },
       headless: { type: "boolean", default: false },
       json: { type: "boolean", default: false },
@@ -96,6 +199,22 @@ async function run(): Promise<number> {
   const model =
     values.model ?? process.env.MICROFOOM_MODEL ?? "openrouter/deepseek/deepseek-v4-flash";
 
+  // The interactive TUI is a separate runtime (OpenTUI needs bun's FFI): re-exec
+  // the bun entry, which runs the program in-process and renders. We just wait.
+  if (values.tui) {
+    return await runTui({
+      sourceFile,
+      input: values.input ?? args[1],
+      harness: values.harness,
+      model: values.model,
+      thinking: values.thinking,
+      allowedTools: values["allowed-tools"],
+      systemPrompt: values["system-prompt"],
+      fullUserMsg: values["full-user-msg"],
+      omitHarnessPrompt: values["omit-harness-prompt"],
+    });
+  }
+
   // Panel on an interactive stderr unless headless; auto-off when piped.
   const interactive = process.stderr.isTTY === true;
   const usePanel = values.panel || (!values.headless && interactive);
@@ -109,7 +228,10 @@ async function run(): Promise<number> {
     );
     return 1;
   }
-  const openSession = makeHarness();
+  const openSession =
+    harnessName === "pi"
+      ? createPiOpenSession({ omitHarnessBasePrompt: values["omit-harness-prompt"] })
+      : makeHarness();
 
   const events: AgentEvent[] = [];
   const panel = usePanel ? attachPanel(process.stderr) : undefined;
@@ -118,13 +240,14 @@ async function run(): Promise<number> {
     panel?.onEvent(event);
   };
 
+  const defaults = cliDefaults(values.thinking, parseAllowedTools(values["allowed-tools"]));
   try {
     const result = await runProgram(ProgramClass, input, {
       harnesses: { [harnessName]: openSession },
       model,
       sourceFile,
       onEvent,
-      ...(values.thinking !== undefined ? { defaults: { thinking: values.thinking } } : {}),
+      ...(Object.keys(defaults).length > 0 ? { defaults } : {}),
     });
     panel?.done();
 

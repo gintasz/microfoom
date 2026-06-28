@@ -2,5 +2,8 @@
   "$schema": "https://unpkg.com/knip@6/schema.json",
   "ignore": ["docs/**"],
   "ignoreExportsUsedInFile": true,
-  "entry": ["examples/*.ts"]
+  "workspaces": {
+    ".": { "entry": ["examples/*.ts"] },
+    "packages/microfoom-cli": { "entry": ["src/tui.tsx"] }
+  }
 }

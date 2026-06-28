@@ -74,3 +74,13 @@ asynchrony
 pipeable
 frontends
 subschema
+opentui
+xtermjs
+termless
+scrollbox
+COLORFGBG
+fgbg
+trackpad
+respawns
+respawn
+ellipsize

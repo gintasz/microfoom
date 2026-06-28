@@ -45,6 +45,22 @@ export function formatEvent(event: AgentEvent): string {
       return `[${event.level}] ${event.span} ${event.message}`;
     case "annotate":
       return `# ${event.span} ${JSON.stringify(event.attributes)}`;
+    case "turn_meta":
+      return `⚙ ${event.span} system(${event.systemPrompt.length} chars)`;
+    case "user_prompt":
+      return `» ${event.span} ${event.text}`;
+    case "msg_start":
+      return `« ${event.span} (assistant)`;
+    case "msg_text":
+      return `« ${event.span} ${event.delta}`;
+    case "msg_thinking":
+      return `~ ${event.span} ${event.delta}`;
+    case "msg_end":
+      return `« ${event.span} (end)`;
+    case "tool_start":
+      return `↳ ${event.span} ${event.name}(${JSON.stringify(event.args)})`;
+    case "tool_end":
+      return `↲ ${event.span} ${event.isError ? "error" : "ok"} ${event.content}`;
   }
 }
 
@@ -223,4 +239,114 @@ export function buildRunTree(events: readonly AgentEvent[]): RunNode {
     settled: roots.every((root) => root.settled),
     children: roots,
   });
+}
+
+// --- transcript: event stream → readable conversation ----------------------
+
+/**
+ * One turn of the live conversation, span-tagged so a frontend can filter the
+ * transcript to a clicked span. Streamed prose/reasoning is coalesced: contiguous
+ * deltas of the same kind within one assistant message become a single entry.
+ */
+export type TranscriptEntry =
+  | { readonly kind: "system"; readonly span: string; readonly text: string }
+  | { readonly kind: "user"; readonly span: string; readonly text: string }
+  | { readonly kind: "assistant"; readonly span: string; readonly text: string }
+  | { readonly kind: "thinking"; readonly span: string; readonly text: string }
+  | {
+      readonly kind: "tool_call";
+      readonly span: string;
+      readonly callId: string;
+      readonly name: string;
+      readonly args: unknown;
+    }
+  | {
+      readonly kind: "tool_result";
+      readonly span: string;
+      readonly callId: string;
+      readonly content: string;
+      readonly isError: boolean;
+    };
+
+interface OpenText {
+  kind: "assistant" | "thinking";
+  index: number;
+  text: string;
+}
+
+/**
+ * Fold an event stream into an ordered transcript (pure). The user prompt, the
+ * assistant's reasoning and prose, and each tool call/result land in emission
+ * order. Non-transcript events (spans, usage) are ignored.
+ *
+ * Coalescing is tracked PER SPAN, not globally, for two reasons:
+ *  - Concurrent turns (e.g. `Promise.all` over routes) interleave their deltas in
+ *    one stream; a single open slot would flip between spans and shred each turn's
+ *    reasoning into one-word fragments.
+ *  - A harness may chunk one reasoning stream across many provider messages (pi
+ *    does — dozens of `msg_start`/`msg_end` per turn); those boundaries are ignored
+ *    so the thinking stays whole.
+ * A change of kind, a tool call/result, or a new prompt closes that span's entry.
+ */
+export function buildTranscript(events: readonly AgentEvent[]): readonly TranscriptEntry[] {
+  const out: TranscriptEntry[] = [];
+  // Per-span open streamed entry, so interleaved deltas append to the right block.
+  const open = new Map<string, OpenText>();
+
+  const append = (kind: "assistant" | "thinking", span: string, delta: string): void => {
+    const current = open.get(span);
+    if (current !== undefined && current.kind === kind) {
+      current.text += delta;
+      out[current.index] = { kind, span, text: current.text };
+      return;
+    }
+    const index = out.length;
+    open.set(span, { kind, index, text: delta });
+    out.push({ kind, span, text: delta });
+  };
+
+  for (const event of events) {
+    switch (event.type) {
+      case "turn_meta":
+        out.push({ kind: "system", span: event.span, text: event.systemPrompt });
+        break;
+      case "user_prompt":
+        open.delete(event.span);
+        out.push({ kind: "user", span: event.span, text: event.text });
+        break;
+      case "msg_start":
+      case "msg_end":
+        // Message boundaries do NOT break coalescing (see note above).
+        break;
+      case "msg_text":
+        append("assistant", event.span, event.delta);
+        break;
+      case "msg_thinking":
+        append("thinking", event.span, event.delta);
+        break;
+      case "tool_start":
+        open.delete(event.span);
+        out.push({
+          kind: "tool_call",
+          span: event.span,
+          callId: event.callId,
+          name: event.name,
+          args: event.args,
+        });
+        break;
+      case "tool_end":
+        open.delete(event.span);
+        out.push({
+          kind: "tool_result",
+          span: event.span,
+          callId: event.callId,
+          content: event.content,
+          isError: event.isError,
+        });
+        break;
+      default:
+        break;
+    }
+  }
+  return out;
 }

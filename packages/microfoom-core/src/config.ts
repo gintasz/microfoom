@@ -28,6 +28,11 @@ export interface AgentConfig {
    *  the run's harness registry (resolved at session-open), so the generic core
    *  never names a concrete adapter. */
   harness?: string;
+  /** Allowlist of harness-provided tool names the model may use this scope. Opaque
+   *  strings the harness resolves (core never enumerates them). `undefined` = all of
+   *  the harness's tools; `[]` = none. The FOOM protocol tools are always available
+   *  regardless. */
+  allowedTools?: readonly string[];
   thinking?: ThinkingLevel;
   retries?: number;
   repairAttempts?: number;
@@ -114,6 +119,7 @@ function compact(config: LooseConfig): AgentConfig {
   const out: AgentConfig = {};
   if (config.model !== undefined) out.model = config.model;
   if (config.harness !== undefined) out.harness = config.harness;
+  if (config.allowedTools !== undefined) out.allowedTools = config.allowedTools;
   if (config.thinking !== undefined) out.thinking = config.thinking;
   if (config.retries !== undefined) out.retries = config.retries;
   if (config.repairAttempts !== undefined) out.repairAttempts = config.repairAttempts;
@@ -133,6 +139,7 @@ export function mergeConfig(wider: AgentConfig, narrower: AgentConfig): AgentCon
   const merged: LooseConfig = {
     model: override(wider.model, narrower.model),
     harness: override(wider.harness, narrower.harness),
+    allowedTools: override(wider.allowedTools, narrower.allowedTools),
     thinking: override(wider.thinking, narrower.thinking),
     retries: override(wider.retries, narrower.retries),
     repairAttempts: override(wider.repairAttempts, narrower.repairAttempts),

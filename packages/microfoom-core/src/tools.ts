@@ -310,6 +310,7 @@ export interface RunTurnParams {
   readonly caps: ResolvedCaps;
   readonly fold: (delta: UsageAccount) => UsageAccount;
   readonly thinking?: string;
+  readonly allowedTools?: readonly string[];
   readonly onToken?: (token: LLMToken) => void;
   readonly onStreamChunk?: (chunk: string) => void;
   readonly signal?: AbortSignal;
@@ -347,23 +348,61 @@ export async function runProgramTurn(params: RunTurnParams): Promise<TurnOutcome
     -readonly [K in keyof SessionTurnRequest]: SessionTurnRequest[K];
   } = { systemPrompt: params.systemPrompt, prompt: params.prompt, tools };
   if (params.thinking !== undefined) request.thinking = params.thinking;
+  if (params.allowedTools !== undefined) request.allowedTools = params.allowedTools;
   if (params.caps.maxOutputTokens !== undefined)
     request.maxOutputTokens = params.caps.maxOutputTokens;
   if (params.signal !== undefined) request.signal = params.signal;
+  // Bridge the harness's per-turn stream into the run's neutral event stream: token
+  // deltas reach onToken/onStreamChunk as before, and every chunk also folds into a
+  // transcript event (assistant prose/reasoning, tool calls) tagged with this span.
   const onToken = params.onToken;
   const onStreamChunk = params.onStreamChunk;
-  if (onToken !== undefined || onStreamChunk !== undefined) {
-    request.onEvent = (event: StreamEvent) => {
-      if (event.type === "text") onStreamChunk?.(event.delta);
-      onToken?.({ type: event.type, text: event.delta });
-    };
-  }
+  const emit = emitter.emit;
+  const span = emitter.span;
+  request.onEvent = (event: StreamEvent) => {
+    switch (event.type) {
+      case "text":
+        onStreamChunk?.(event.delta);
+        onToken?.({ type: "text", text: event.delta });
+        emit?.({ type: "msg_text", span, delta: event.delta });
+        break;
+      case "reasoning":
+        onToken?.({ type: "reasoning", text: event.delta });
+        emit?.({ type: "msg_thinking", span, delta: event.delta });
+        break;
+      case "message_start":
+        emit?.({ type: "msg_start", span });
+        break;
+      case "message_end":
+        emit?.({ type: "msg_end", span });
+        break;
+      case "tool_call":
+        emit?.({
+          type: "tool_start",
+          span,
+          callId: event.callId,
+          name: event.name,
+          args: event.args,
+        });
+        break;
+      case "tool_result":
+        emit?.({
+          type: "tool_end",
+          span,
+          callId: event.callId,
+          content: event.content,
+          isError: event.isError,
+        });
+        break;
+    }
+  };
 
   // The harness loop repairs invalid tool calls within a turn (an error tool-result
   // makes the model retry). A value turn that ends with NO foom_return is repaired
   // here: re-prompt the same session (transcript continues) up to repairAttempts.
   let assistantText = "";
   for (let attempt = 0; ; attempt += 1) {
+    emit?.({ type: "user_prompt", span, text: request.prompt });
     const turnPromise = params.session.runTurn(request);
     const result =
       params.caps.maxTurnDurationMs === undefined

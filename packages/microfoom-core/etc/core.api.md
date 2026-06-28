@@ -17,6 +17,7 @@ export type AgentClassDecorator = <T extends abstract new (...args: never[]) => 
 
 // @public
 export interface AgentConfig {
+    allowedTools?: readonly string[];
     harness?: string;
     // (undocumented)
     maxBudgetUsd?: number;
@@ -312,6 +313,7 @@ export interface HarnessSession {
     fork?(): HarnessSession;
     // (undocumented)
     runTurn(request: SessionTurnRequest): Promise<SessionTurnResult>;
+    systemPrompt?(programPrompt: string): string;
 }
 
 // @public
@@ -384,6 +386,7 @@ export interface RunProgramOptions {
 
 // @public
 export interface SessionTurnRequest {
+    readonly allowedTools?: readonly string[];
     // (undocumented)
     readonly maxOutputTokens?: number;
     // (undocumented)
@@ -414,6 +417,20 @@ export type StreamEvent = {
 } | {
     readonly type: "reasoning";
     readonly delta: string;
+} | {
+    readonly type: "message_start";
+} | {
+    readonly type: "message_end";
+} | {
+    readonly type: "tool_call";
+    readonly callId: string;
+    readonly name: string;
+    readonly args: unknown;
+} | {
+    readonly type: "tool_result";
+    readonly callId: string;
+    readonly content: string;
+    readonly isError: boolean;
 };
 
 // @public

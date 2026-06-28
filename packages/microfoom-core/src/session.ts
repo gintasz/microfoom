@@ -45,16 +45,39 @@ export interface UsageDelta {
   readonly costUsd?: number;
 }
 
-/** Incremental output during a turn (token streaming surfaced to onToken). */
+/**
+ * Incremental output during a turn. `text`/`reasoning` are token deltas (surfaced
+ * to onToken). The rest carry transcript structure a harness observes from its
+ * model loop — assistant message boundaries and the tool calls it made — so a
+ * frontend can show the live conversation. A harness emits what it can; a minimal
+ * one emits only `text`.
+ */
 export type StreamEvent =
   | { readonly type: "text"; readonly delta: string }
-  | { readonly type: "reasoning"; readonly delta: string };
+  | { readonly type: "reasoning"; readonly delta: string }
+  | { readonly type: "message_start" }
+  | { readonly type: "message_end" }
+  | {
+      readonly type: "tool_call";
+      readonly callId: string;
+      readonly name: string;
+      readonly args: unknown;
+    }
+  | {
+      readonly type: "tool_result";
+      readonly callId: string;
+      readonly content: string;
+      readonly isError: boolean;
+    };
 
 /** One model turn for the harness to run: prompt + the tools it may call. */
 export interface SessionTurnRequest {
   readonly systemPrompt: string;
   readonly prompt: string;
   readonly tools: readonly NeutralToolDef[];
+  /** Allowlist of the harness's OWN tools to expose this turn (opaque names).
+   *  `undefined` = all; `[]` = none. The `tools` above (FOOM) are always exposed. */
+  readonly allowedTools?: readonly string[];
   readonly thinking?: ThinkingLevel;
   readonly maxOutputTokens?: number;
   readonly onEvent?: (event: StreamEvent) => void;
@@ -77,6 +100,14 @@ export interface SessionTurnResult {
  */
 export interface HarnessSession {
   runTurn(request: SessionTurnRequest): Promise<SessionTurnResult>;
+  /**
+   * The full system prompt this session will actually send the model for a given
+   * program prompt — e.g. a harness that prepends its own base prompt returns
+   * `base + programPrompt`. For display/observability only (the runtime shows this
+   * as the turn's system prompt); the same composition is applied inside runTurn.
+   * Omit when the session sends the program prompt verbatim.
+   */
+  systemPrompt?(programPrompt: string): string;
   /**
    * Branch this session: return a NEW session seeded with a copy of the current
    * transcript, diverging independently from here (backs AgentSession.fork()).

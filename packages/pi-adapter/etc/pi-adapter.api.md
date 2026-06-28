@@ -4,6 +4,7 @@
 
 ```ts
 
+import { AgentTool } from '@earendil-works/pi-agent-core';
 import type { Api } from '@earendil-works/pi-ai';
 import type { Model } from '@earendil-works/pi-ai';
 import { OpenSession } from '@microfoom/core';
@@ -17,9 +18,12 @@ export const PI_HARNESS_VERSION = "0.0.0";
 
 // @public
 export interface PiSessionOptions {
+    readonly basePrompt?: string;
     readonly logFile?: string;
+    readonly omitHarnessBasePrompt?: boolean;
     readonly resolveModel?: (modelId: string) => Model<Api> | undefined;
     readonly streamFn?: StreamFn;
+    readonly tools?: readonly AgentTool[];
 }
 
 // (No @packageDocumentation comment for this package)

@@ -19,10 +19,20 @@
   "dependencies": {
     "@microfoom/core": "workspace:*",
     "@microfoom/pi-adapter": "workspace:*",
+    "@opentui/core": "0.4.2",
+    "@opentui/react": "0.4.2",
     "cli-truncate": "4.0.0",
     "log-update": "6.1.0",
     "picocolors": "1.1.1",
+    "react": "19.2.0",
     "string-width": "7.2.0",
     "tsx": "4.22.4"
+  },
+  "devDependencies": {
+    "@termless/core": "0.7.0",
+    "@termless/xtermjs": "0.4.0",
+    "@types/react": "19.2.2",
+    "node-pty": "1.1.0",
+    "silvery": "0.21.0"
   }
 }

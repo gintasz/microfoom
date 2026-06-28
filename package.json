@@ -7,6 +7,11 @@
   "engines": {
     "node": ">=24"
   },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "node-pty"
+    ]
+  },
   "scripts": {
     "build": "tsc -b",
     "clean": "tsc -b --clean",
@@ -20,7 +25,7 @@
     "lint:fix": "biome check --write .",
     "arch": "depcruise packages --config .dependency-cruiser.cjs",
     "ast": "ast-grep scan",
-    "spell": "cspell --no-progress \"**/*.{ts,md,json}\"",
+    "spell": "cspell --no-progress \"**/*.{ts,tsx,md,json}\"",
     "deps:check": "syncpack lint",
     "deps:fix": "syncpack fix",
     "dead": "knip",

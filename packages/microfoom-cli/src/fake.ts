@@ -21,14 +21,29 @@ const FAKE_USAGE: UsageDelta = {
 };
 
 export function fakeOpenSession(): OpenSession {
+  let calls = 0;
   const session: HarnessSession = {
     async runTurn(request: SessionTurnRequest): Promise<SessionTurnResult> {
       const reply = `fake reply for: ${request.prompt.slice(0, 60).replace(/\s+/g, " ").trim()}`;
+      const emit = request.onEvent;
+      // Drive the same transcript stream a real harness would, so the panel/TUI
+      // shows reasoning + prose + tool calls offline (no model).
+      emit?.({ type: "message_start" });
+      emit?.({ type: "reasoning", delta: "thinking about the request… " });
+      emit?.({ type: "reasoning", delta: "the answer is an echo." });
       const returnTool = request.tools.find((tool) => tool.name === CONTROL_TOOLS.return);
       if (returnTool !== undefined) {
-        await returnTool.execute({ value: reply });
+        calls += 1;
+        const callId = `fake-${calls}`;
+        const args = { value: reply };
+        emit?.({ type: "tool_call", callId, name: CONTROL_TOOLS.return, args });
+        const result = await returnTool.execute(args);
+        emit?.({ type: "tool_result", callId, content: result.content, isError: result.isError });
+        emit?.({ type: "message_end" });
         return { assistantText: "", usage: FAKE_USAGE };
       }
+      emit?.({ type: "text", delta: reply });
+      emit?.({ type: "message_end" });
       return { assistantText: reply, usage: FAKE_USAGE };
     },
   };

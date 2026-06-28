@@ -160,20 +160,24 @@ export interface RunProgramOptions {
   readonly onEvent?: (event: AgentEvent) => void;
 }
 
-const PROTOCOL_PREAMBLE = [
-  "<!-- microfoom:begin -->",
-  "You are running inside a microfoom runtime.",
-  "<!-- microfoom:end -->",
-].join("\n");
+// Delimiters that mark runtime-injected text (not the dev's task input). The whole
+// runtime contribution — the intro AND the foom_call announcements — lives inside
+// one begin/end block, so a reader (and the panel) can see exactly what microfoom
+// added vs. what the program authored.
+const NOTICE_BEGIN = "<!-- microfoom:begin -->";
+const NOTICE_END = "<!-- microfoom:end -->";
+const PROTOCOL_INTRO = "You are running inside a microfoom runtime.";
 
-// Appended to a value turn's prompt (only). A delimited meta-notice — the markers
-// (matching PROTOCOL_PREAMBLE) signal it is runtime instruction, not task input —
-// nudging the model to actually terminate the turn with foom_return.
-const VALUE_TURN_NOTICE = [
-  "<!-- microfoom:begin -->",
+/** Wrap runtime-injected lines in one begin/end block. */
+function noticeBlock(body: string): string {
+  return [NOTICE_BEGIN, body, NOTICE_END].join("\n");
+}
+
+// Appended to a value turn's prompt (only). A delimited meta-notice nudging the
+// model to actually terminate the turn with foom_return.
+const VALUE_TURN_NOTICE = noticeBlock(
   "You must end this turn by calling the foom_return tool with the result; If you cannot complete the task as the user instruction expects, or the instructions are defective or contradictory, call foom_throw instead.",
-  "<!-- microfoom:end -->",
-].join("\n");
+);
 
 function pickConfig(options: AgentOptions): AgentConfig {
   const { onToken, signal, label, ...config } = options;
@@ -339,6 +343,7 @@ interface Prepared {
   readonly systemPrompt: string;
   readonly caps: ResolvedCaps;
   readonly thinking?: string;
+  readonly allowedTools?: readonly string[];
 }
 
 function prepare(runtime: Runtime, options: AgentOptions): Prepared {
@@ -364,13 +369,13 @@ function prepare(runtime: Runtime, options: AgentOptions): Prepared {
       : "append" in merged.systemPrompt
         ? merged.systemPrompt.append
         : merged.systemPrompt.replace;
-  const systemPrompt = [
-    PROTOCOL_PREAMBLE,
+  // The runtime block: intro + (when any) the foom_call announcements, all inside
+  // one begin/end notice. The dev's own systemPrompt stays OUTSIDE the block.
+  const runtimeBody =
     announcements.length > 0
-      ? `Methods you may call via foom_call:\n${announcements.join("\n")}`
-      : "",
-    userPrompt,
-  ]
+      ? `${PROTOCOL_INTRO}\n\nMethods you may call via foom_call:\n${announcements.join("\n")}`
+      : PROTOCOL_INTRO;
+  const systemPrompt = [noticeBlock(runtimeBody), userPrompt]
     .filter((part) => part.length > 0)
     .join("\n\n");
   const prepared: Prepared = {
@@ -378,6 +383,7 @@ function prepare(runtime: Runtime, options: AgentOptions): Prepared {
     systemPrompt,
     caps: resolveCaps(merged),
     ...(merged.thinking !== undefined ? { thinking: merged.thinking } : {}),
+    ...(merged.allowedTools !== undefined ? { allowedTools: merged.allowedTools } : {}),
   };
   return prepared;
 }
@@ -453,6 +459,15 @@ function makeRun(
     const startedAt = Date.now();
     try {
       const session = await source.get();
+      // The exact system prompt the model saw this turn, sourced from the session
+      // (so a harness that prepends its own base prompt shows the composed whole).
+      if (traced) {
+        emitAll(runtime, {
+          type: "turn_meta",
+          span,
+          systemPrompt: session.systemPrompt?.(prepared.systemPrompt) ?? prepared.systemPrompt,
+        });
+      }
       // Run the turn body under this span so a method the agent foom_calls
       // mid-turn (and its own turns) nest beneath it.
       return await runtime.spanALS.run(span, () =>
@@ -471,6 +486,7 @@ function makeRun(
           ...(traced ? { emit: (event: AgentEvent) => emitAll(runtime, event) } : {}),
           span,
           ...(prepared.thinking !== undefined ? { thinking: prepared.thinking } : {}),
+          ...(prepared.allowedTools !== undefined ? { allowedTools: prepared.allowedTools } : {}),
           ...(options.onToken !== undefined ? { onToken: options.onToken } : {}),
           ...(onStreamChunk !== undefined ? { onStreamChunk } : {}),
           signal,

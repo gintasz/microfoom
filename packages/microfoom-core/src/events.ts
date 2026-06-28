@@ -33,6 +33,30 @@ export type AgentEvent =
       readonly type: "annotate";
       readonly span: string;
       readonly attributes: Record<string, unknown>;
+    }
+  // Transcript events (the live conversation): the prompt sent to the model, the
+  // assistant's streamed prose/reasoning, and the tool calls it made within a span.
+  // A frontend folds these into a readable transcript (see trace.buildTranscript);
+  // exporters that only want the span tree ignore them.
+  | { readonly type: "turn_meta"; readonly span: string; readonly systemPrompt: string }
+  | { readonly type: "user_prompt"; readonly span: string; readonly text: string }
+  | { readonly type: "msg_start"; readonly span: string }
+  | { readonly type: "msg_text"; readonly span: string; readonly delta: string }
+  | { readonly type: "msg_thinking"; readonly span: string; readonly delta: string }
+  | { readonly type: "msg_end"; readonly span: string }
+  | {
+      readonly type: "tool_start";
+      readonly span: string;
+      readonly callId: string;
+      readonly name: string;
+      readonly args: unknown;
+    }
+  | {
+      readonly type: "tool_end";
+      readonly span: string;
+      readonly callId: string;
+      readonly content: string;
+      readonly isError: boolean;
     };
 
 /** An OTel-style sink: the runtime feeds it the event stream. */

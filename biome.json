@@ -31,6 +31,15 @@
   },
   "overrides": [
     {
+      "includes": ["packages/microfoom-cli/src/tui.tsx", "packages/microfoom-cli/src/tui/**"],
+      "linter": {
+        "rules": {
+          "a11y": { "noStaticElementInteractions": "off" },
+          "suspicious": { "noArrayIndexKey": "off" }
+        }
+      }
+    },
+    {
       "includes": ["packages/*/src/**/*.ts"],
       "linter": {
         "rules": {

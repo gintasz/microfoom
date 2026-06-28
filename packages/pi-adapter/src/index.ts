@@ -14,6 +14,7 @@ import {
   type AgentMessage,
   type AgentTool,
   type AgentToolResult,
+  type AgentEvent as PiAgentEvent,
   type StreamFn,
   type ThinkingLevel,
 } from "@earendil-works/pi-agent-core";
@@ -34,6 +35,7 @@ import {
   type OpenSession,
   type SessionTurnRequest,
   type SessionTurnResult,
+  type StreamEvent,
   type UsageDelta,
 } from "@microfoom/core";
 import { Type } from "typebox";
@@ -129,6 +131,56 @@ function logTurn(
   }
 }
 
+/** Flatten a pi tool result's content blocks to the text shown in a transcript. */
+function toolResultText(result: unknown): string {
+  const content = (result as { content?: unknown } | undefined)?.content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .filter(
+      (part): part is TextContent =>
+        typeof part === "object" && part !== null && (part as TextContent).type === "text",
+    )
+    .map((part) => part.text)
+    .join("");
+}
+
+/**
+ * Translate one pi `Agent` lifecycle event into a microfoom `StreamEvent` (or
+ * undefined to drop it). This is the transcript bridge: assistant prose/reasoning
+ * deltas and tool call/result boundaries flow to the run's frontend; pi's
+ * bookkeeping events (turn_start, agent_start/end) are dropped.
+ */
+function toStreamEvent(event: PiAgentEvent): StreamEvent | undefined {
+  switch (event.type) {
+    case "message_start":
+      return { type: "message_start" };
+    case "message_end":
+      return { type: "message_end" };
+    case "message_update": {
+      const update = event.assistantMessageEvent;
+      if (update.type === "text_delta") return { type: "text", delta: update.delta };
+      if (update.type === "thinking_delta") return { type: "reasoning", delta: update.delta };
+      return undefined;
+    }
+    case "tool_execution_start":
+      return {
+        type: "tool_call",
+        callId: event.toolCallId,
+        name: event.toolName,
+        args: event.args,
+      };
+    case "tool_execution_end":
+      return {
+        type: "tool_result",
+        callId: event.toolCallId,
+        content: toolResultText(event.result),
+        isError: event.isError,
+      };
+    default:
+      return undefined;
+  }
+}
+
 function assistantText(message: AssistantMessage): string {
   return message.content
     .filter((part): part is TextContent => part.type === "text")
@@ -154,11 +206,34 @@ export interface PiSessionOptions {
   readonly streamFn?: StreamFn;
   /** Append a JSONL record of each turn here. Default: `process.env.MICROFOOM_LOG`. */
   readonly logFile?: string;
+  /**
+   * Drop pi's base system prompt — send the model ONLY microfoom's prompt (runtime
+   * block + the program's own systemPrompt). Default false: pi's base (coding-agent
+   * persona + project context) is prepended, AGENTS.md-style.
+   */
+  readonly omitHarnessBasePrompt?: boolean;
+  /** Override the base system prompt (tests / custom wiring). Default: pi's configured base. */
+  readonly basePrompt?: string;
+  /** Override the harness tool suite (tests / custom wiring). Default: pi's configured tools. */
+  readonly tools?: readonly AgentTool[];
 }
 
 interface PiRuntime {
   readonly streamFn: StreamFn;
   readonly registry?: ModelRegistry;
+  /** pi's configured base system prompt (persona + project context); microfoom's
+   *  program prompt is appended to it, AGENTS.md-style. undefined when omitted (or
+   *  an injected streamFn with no base), so the program prompt is sent verbatim. */
+  readonly basePrompt?: string | undefined;
+  /** pi's default tools (read/bash/edit/…) advertised to the model alongside the
+   *  FOOM tools, so the harness persona's claimed capabilities are real. undefined
+   *  in bare mode (omitHarnessBasePrompt) — then only the FOOM tools are offered. */
+  readonly harnessTools?: readonly AgentTool[] | undefined;
+}
+
+/** Append the program's system prompt to the harness base (AGENTS.md-style). */
+function composeSystemPrompt(base: string | undefined, programPrompt: string): string {
+  return base !== undefined && base.length > 0 ? `${base}\n\n${programPrompt}` : programPrompt;
 }
 
 /**
@@ -172,24 +247,41 @@ export function createPiOpenSession(options: PiSessionOptions = {}): OpenSession
   const logFile = options.logFile ?? process.env.MICROFOOM_LOG;
   let cached: PiRuntime | undefined;
 
+  // `omitHarnessBasePrompt` drops pi's base PROMPT only (persona/context). Which
+  // tools are exposed is independent — controlled per-turn by request.allowedTools.
+  // An explicit option override wins over pi's configured values (for tests).
+  const resolveBase = (piBase: string | undefined): string | undefined =>
+    options.omitHarnessBasePrompt === true ? undefined : (options.basePrompt ?? piBase);
+  const resolveTools = (piTools: readonly AgentTool[] | undefined) => options.tools ?? piTools;
+
   const init = async (): Promise<PiRuntime> => {
     if (cached !== undefined) return cached;
     if (options.streamFn !== undefined) {
-      cached = { streamFn: options.streamFn };
+      cached = {
+        streamFn: options.streamFn,
+        basePrompt: resolveBase(undefined),
+        harnessTools: resolveTools(undefined),
+      };
       return cached;
     }
     const registry = ModelRegistry.create(AuthStorage.create());
     registry.refresh();
-    // createAgentSession (a MAIN export) wires model/auth/providers from ~/.pi; we
-    // reuse only its configured stream function to drive our own per-turn Agents.
+    // createAgentSession (a MAIN export) wires model/auth/providers + the default
+    // tool suite from ~/.pi. We reuse its stream function AND its tools so a microfoom
+    // turn is a full pi agent that also speaks the FOOM protocol; request.allowedTools
+    // narrows the set per turn.
     const available = registry.getAvailable();
     const seed = available[0] ?? registry.getAll()[0];
     const { session } = await createAgentSession({
       modelRegistry: registry,
-      noTools: "all",
       ...(seed !== undefined ? { model: seed } : {}),
     });
-    cached = { streamFn: session.agent.streamFn, registry };
+    cached = {
+      streamFn: session.agent.streamFn,
+      registry,
+      basePrompt: resolveBase(session.agent.state.systemPrompt),
+      harnessTools: resolveTools(session.agent.state.tools),
+    };
     return cached;
   };
 
@@ -215,15 +307,26 @@ export function createPiOpenSession(options: PiSessionOptions = {}): OpenSession
     const makeHarnessSession = (seed?: readonly AgentMessage[]): HarnessSession => {
       let agent: Agent | undefined;
       return {
+        // The model receives pi's base prompt with the program prompt appended.
+        systemPrompt(programPrompt: string): string {
+          return composeSystemPrompt(runtime.basePrompt, programPrompt);
+        },
         async runTurn(request: SessionTurnRequest): Promise<SessionTurnResult> {
           const thinkingLevel: ThinkingLevel =
             request.thinking !== undefined && PI_THINKING.has(request.thinking)
               ? (request.thinking as ThinkingLevel)
               : "off";
-          const tools = request.tools.map(toAgentTool);
+          // Harness tools narrowed by request.allowedTools (undefined = all, [] =
+          // none), then the per-turn FOOM tools (always exposed).
+          const allowed = request.allowedTools;
+          const harnessTools = (runtime.harnessTools ?? []).filter(
+            (tool) => allowed === undefined || allowed.includes(tool.name),
+          );
+          const tools = [...harnessTools, ...request.tools.map(toAgentTool)];
+          const systemPrompt = composeSystemPrompt(runtime.basePrompt, request.systemPrompt);
           if (agent === undefined) {
             agent = new Agent({
-              initialState: { systemPrompt: request.systemPrompt, model, thinkingLevel, tools },
+              initialState: { systemPrompt, model, thinkingLevel, tools },
               streamFn: runtime.streamFn,
               convertToLlm: (messages: AgentMessage[]) =>
                 messages.filter(
@@ -232,17 +335,47 @@ export function createPiOpenSession(options: PiSessionOptions = {}): OpenSession
                     message.role === "assistant" ||
                     message.role === "toolResult",
                 ),
+              // Debug escape hatch (parallel to MICROFOOM_LOG): append the EXACT
+              // provider request body — system message, messages, tools — as JSONL.
+              // The ground truth of what the model receives.
+              ...(process.env.MICROFOOM_DUMP_PAYLOAD !== undefined
+                ? {
+                    onPayload: (payload: unknown) => {
+                      appendFileSync(
+                        process.env.MICROFOOM_DUMP_PAYLOAD as string,
+                        `${JSON.stringify(payload)}\n`,
+                      );
+                      return undefined;
+                    },
+                  }
+                : {}),
             });
             // Branch seed: continue from a copy of the parent transcript (fork()).
             if (seed !== undefined) agent.state.messages = [...seed];
           } else {
-            agent.state.systemPrompt = request.systemPrompt;
+            agent.state.systemPrompt = systemPrompt;
             agent.state.thinkingLevel = thinkingLevel;
             agent.state.tools = tools;
           }
 
+          // Forward pi's live lifecycle events to the run's transcript stream while
+          // this turn runs (assistant deltas, tool calls/results). Only subscribe
+          // when someone is listening, and always unsubscribe after the turn.
+          const onEvent = request.onEvent;
+          const unsubscribe =
+            onEvent !== undefined
+              ? agent.subscribe((event) => {
+                  const stream = toStreamEvent(event);
+                  if (stream !== undefined) onEvent(stream);
+                })
+              : undefined;
+
           const before = agent.state.messages.length;
-          await agent.prompt(request.prompt);
+          try {
+            await agent.prompt(request.prompt);
+          } finally {
+            unsubscribe?.();
+          }
           logTurn(logFile, model.id, request, agent.state.messages.slice(before), tools);
 
           // Usage + text for THIS turn only — the messages appended by this prompt.
