@@ -52,7 +52,7 @@ describe("AgentSession.fork (transcript branching)", () => {
     class P extends Program<typeof stringInput, number[]>(stringInput) {
       async main(): Promise<number[]> {
         const base = this.agent.session();
-        await base.text`A`; // base transcript: [A]
+        await base.prose`A`; // base transcript: [A]
         const f1 = base.fork();
         const f2 = base.fork();
         // Each fork starts from a COPY of [A], adds one turn → length 2, and neither
@@ -76,7 +76,7 @@ describe("AgentSession.fork (transcript branching)", () => {
     class W extends Program<typeof stringInput, number>(stringInput) {
       async main(): Promise<number> {
         const session = this.agent.session();
-        await session.text`A`; // [A]
+        await session.prose`A`; // [A]
         // .with() must continue the same conversation, so this turn sees [A] → 2.
         return await session.with({ label: "x" }).value(numberSchema)`B`;
       }
@@ -88,7 +88,7 @@ describe("AgentSession.fork (transcript branching)", () => {
   it("throws FoomtimeConfigError when the harness session can't fork", async () => {
     class Q extends Program<typeof stringInput, string>(stringInput) {
       async main(): Promise<string> {
-        return await this.agent.session().fork().text`x`;
+        return await this.agent.session().fork().prose`x`;
       }
     }
     // fakeOpenSession has no fork() — branching is unsupported.

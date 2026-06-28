@@ -41,6 +41,13 @@ export const CONTROL_TOOL_DESCRIPTIONS: Record<ControlToolName, string> = {
 };
 
 /**
+ * Description for `foom_return` in a `do` turn — there is no value to return, so the
+ * tool takes no arguments and merely signals the task is finished (mirrors `return;`).
+ */
+export const DONE_RETURN_DESCRIPTION =
+  "Signal that this turn's task is complete. Call with NO arguments — this turn returns no value to the program. Do not write a prose summary.";
+
+/**
  * Per-control-tool usage blurb (promptSnippet) — keyed like the descriptions.
  */
 export const CONTROL_TOOL_SNIPPETS: Partial<Record<ControlToolName, string>> = {
@@ -69,4 +76,6 @@ export const TOOL_RESULTS = {
   returned: "Returned.",
   missingReturn:
     "You did not call foom_return. Call foom_return now with the result — or foom_throw if you cannot complete the task or the instructions are defective or contradictory.",
+  missingDone:
+    "You did not call foom_return. Call foom_return now (with no arguments) to confirm the task is complete — or foom_throw if you cannot complete it or the instructions are defective or contradictory.",
 } as const;

@@ -118,7 +118,7 @@ const SOURCE = fileURLToPath(import.meta.url);
 
 class TextProgram extends Program<typeof stringSchema, string>(stringSchema) {
   async main(): Promise<string> {
-    return await this.agent.text`Reply with a short, friendly greeting.`;
+    return await this.agent.prose`Reply with a short, friendly greeting.`;
   }
 }
 

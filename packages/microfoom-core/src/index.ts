@@ -50,10 +50,11 @@ export type {
 } from "./options.js";
 // Program + run context
 export type {
+  AgentDoTemplate,
   AgentProgramContext,
+  AgentProseTemplate,
   AgentRun,
   AgentSession,
-  AgentTextTemplate,
   AgentValueTemplate,
   RunProgramOptions,
 } from "./program.js";

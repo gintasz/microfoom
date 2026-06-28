@@ -28,7 +28,7 @@ describe("program facade (end to end, fake session)", () => {
   it("runs a text turn and returns the prose", async () => {
     class Greeter extends Program<typeof stringInput, string>(stringInput) {
       async main(who: string): Promise<string> {
-        return await this.agent.text`Say hi to ${who}.`;
+        return await this.agent.prose`Say hi to ${who}.`;
       }
     }
     const out = await runProgram(Greeter, "sam", {
@@ -51,11 +51,35 @@ describe("program facade (end to end, fake session)", () => {
     expect(out).toBe(9);
   });
 
+  it("runs a do turn: acts via tools and returns nothing, terminating on a no-arg foom_return", async () => {
+    let returnParams: unknown;
+    const open: OpenSession = () => ({
+      async runTurn(request: SessionTurnRequest): Promise<SessionTurnResult> {
+        const ret = request.tools.find((tool) => tool.name === CONTROL_TOOLS.return);
+        // The do-turn foom_return takes no arguments (no `value` field).
+        returnParams = ret?.parameters;
+        await ret?.execute({});
+        return {
+          assistantText: "",
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2, costUsd: 0 },
+        };
+      },
+    });
+    class Doer extends Program<typeof stringInput, void>(stringInput) {
+      async main(): Promise<void> {
+        await this.agent.do`create the file`;
+      }
+    }
+    const out = await runProgram(Doer, "x", { harnesses: { default: open }, model: "fake" });
+    expect(out).toBeUndefined();
+    expect(returnParams).toMatchObject({ type: "object", properties: {}, required: [] });
+  });
+
   it("takes the model from class @foom.config when run options omit it", async () => {
     @foom.config({ model: "from-class" })
     class Configured extends Program<typeof stringInput, string>(stringInput) {
       async main(): Promise<string> {
-        return await this.agent.text`hello`;
+        return await this.agent.prose`hello`;
       }
     }
     const out = await runProgram(Configured, "x", {
@@ -93,7 +117,7 @@ describe("program facade (end to end, fake session)", () => {
 
     class WithTool extends Program<typeof stringInput, string>(stringInput) {
       async main(): Promise<string> {
-        return await this.agent.text`go`;
+        return await this.agent.prose`go`;
       }
       @foom.expose({
         tool: {
@@ -180,7 +204,7 @@ describe("program facade (end to end, fake session)", () => {
     class Chat extends Program<typeof stringInput, number>(stringInput) {
       async main(): Promise<number> {
         const session = this.agent.session();
-        await session.text`Explain random numbers.`;
+        await session.prose`Explain random numbers.`;
         return await session.value(numberSchema)`Now give one.`;
       }
     }

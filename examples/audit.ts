@@ -39,7 +39,6 @@ export default class Audit extends Program(site) {
     // 1) A plain sequential turn. `.with({ label })` names its row in the panel.
     const intro = await this.agent.with({ label: "intro" }).value(z.string())`
       One short sentence introducing a security audit of ${target}.
-      Respond ONLY with the foom_return tool call carrying that sentence.
     `;
 
     // 2) A named scope: annotate it, fan out concurrent labeled child turns, then
@@ -52,7 +51,7 @@ export default class Audit extends Program(site) {
       routes.map(
         (route) => audit.with({ label: route }).value(z.string())`
           Give a one-line finding about missing authentication on the ${route} route
-          of ${target}. Respond ONLY with the foom_return tool call.
+          of ${target}.
         `,
       ),
     );
@@ -62,7 +61,6 @@ export default class Audit extends Program(site) {
     const deep = audit.scope("deep-check");
     const recheck = await deep.with({ label: primary }).value(z.string())`
       Re-examine ${primary} for auth bypass specifically. One line.
-      Respond ONLY with the foom_return tool call.
     `;
     audit.log(`${findings.length} routes audited`);
 
@@ -73,8 +71,8 @@ export default class Audit extends Program(site) {
       then foom_return a one-line verdict that includes that score.
     `;
 
-    // 4) A final streamed text turn that composes the report.
-    return await this.agent.with({ label: "summary" }).text`
+    // 4) A final streamed prose turn that composes the report.
+    return await this.agent.with({ label: "summary" }).prose`
       Write a two-sentence security audit summary for ${target}.
       Intro: ${intro}
       Findings: ${[...findings, recheck].join(" | ")}

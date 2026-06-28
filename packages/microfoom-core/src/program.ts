@@ -37,8 +37,8 @@ import {
   type UsageAccount,
 } from "./usage.js";
 
-/** A streaming text turn from a template literal. */
-export type AgentTextTemplate = (
+/** A streaming prose turn from a template literal — freeform natural language. */
+export type AgentProseTemplate = (
   strings: TemplateStringsArray,
   ...values: unknown[]
 ) => AgentTextStream;
@@ -51,9 +51,17 @@ export type AgentValueTemplate = <S extends StandardSchemaV1>(
   ...values: unknown[]
 ) => AgentResult<StandardSchemaV1.InferOutput<S>>;
 
-/** The two output modes available wherever prompts run. */
+/** An act turn — do the work (via tools), return nothing. The cheap default for
+ *  instructions whose payload you don't need (no schema, no final prose). */
+export type AgentDoTemplate = (
+  strings: TemplateStringsArray,
+  ...values: unknown[]
+) => AgentResult<void>;
+
+/** The output modes available wherever prompts run: act (`do`), `prose`, `value`. */
 export interface AgentRun {
-  readonly text: AgentTextTemplate;
+  readonly do: AgentDoTemplate;
+  readonly prose: AgentProseTemplate;
   readonly value: AgentValueTemplate;
 }
 
@@ -177,6 +185,12 @@ function noticeBlock(body: string): string {
 // model to actually terminate the turn with foom_return.
 const VALUE_TURN_NOTICE = noticeBlock(
   "You must end this turn by calling the foom_return tool with the result; If you cannot complete the task as the user instruction expects, or the instructions are defective or contradictory, call foom_throw instead.",
+);
+
+// Appended to a `do` turn's prompt: terminate with a no-arg foom_return once the
+// work is done, and do NOT write a final summary (the program ignores prose here).
+const DO_TURN_NOTICE = noticeBlock(
+  "When the task is complete, end this turn by calling the foom_return tool with NO arguments. Do not write a summary or explanation — the program does not read it. If you cannot complete the task, or the instructions are defective or contradictory, call foom_throw instead.",
 );
 
 function pickConfig(options: AgentOptions): AgentConfig {
@@ -453,9 +467,14 @@ function makeRun(
           : { type: "turn_start", span },
       );
     }
-    // A value turn must terminate with foom_return; nudge the model at the end of
-    // its prompt (text turns just produce prose, so they need no notice).
-    const turnPrompt = mode.kind === "value" ? `${prompt}\n\n${VALUE_TURN_NOTICE}` : prompt;
+    // A value/do turn must terminate with foom_return; nudge the model at the end of
+    // its prompt (prose turns just stream text, so they need no notice).
+    const turnPrompt =
+      mode.kind === "value"
+        ? `${prompt}\n\n${VALUE_TURN_NOTICE}`
+        : mode.kind === "do"
+          ? `${prompt}\n\n${DO_TURN_NOTICE}`
+          : prompt;
     const startedAt = Date.now();
     try {
       const session = await source.get();
@@ -508,7 +527,7 @@ function makeRun(
     }
   };
 
-  const text: AgentTextTemplate = (strings, ...values) => {
+  const prose: AgentProseTemplate = (strings, ...values) => {
     begin();
     const prompt = render(strings, values);
     const { stream, sink } = makeTextStream({
@@ -529,6 +548,17 @@ function makeRun(
     return stream;
   };
 
+  const act: AgentDoTemplate = (strings, ...values) => {
+    begin();
+    const prompt = render(strings, values);
+    return makeResult<void>({
+      run: async (signal) => {
+        await drive({ kind: "do" }, prompt, signal);
+      },
+      usage: () => readUsage(runtime),
+    });
+  };
+
   const value: AgentValueTemplate =
     (schema) =>
     (strings, ...values) => {
@@ -545,7 +575,7 @@ function makeRun(
       });
     };
 
-  return { text, value };
+  return { do: act, prose, value };
 }
 
 function statelessSource(runtime: Runtime, model: string, options: AgentOptions): SessionSource {
@@ -585,7 +615,8 @@ function sessionHandle(
 ): AgentSession {
   const run = makeRun(runtime, options, source);
   return {
-    text: run.text,
+    do: run.do,
+    prose: run.prose,
     value: run.value,
     // Same transcript, options layered: share the source (and its single-flight guard).
     with: (extra) => sessionHandle(runtime, { ...options, ...extra }, source),
@@ -714,7 +745,8 @@ function makeScope(
     spanId,
   );
   return {
-    text: run.text,
+    do: run.do,
+    prose: run.prose,
     value: run.value,
     with: (extra) => makeScope(runtime, { ...options, ...extra }, name, spanId, parentSpan),
     scope: (child) => makeScope(runtime, options, child, runtime.nextSpan(), spanId),
@@ -734,7 +766,8 @@ function makeContext<P extends object>(
     statelessSource(runtime, runtime.defaults.model ?? "", options),
   );
   const context: AgentProgramContext<P> & TraceContext = {
-    text: run.text,
+    do: run.do,
+    prose: run.prose,
     value: run.value,
     program: runtime.instance as P,
     get usage() {

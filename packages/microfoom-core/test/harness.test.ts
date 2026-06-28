@@ -29,7 +29,7 @@ describe("harness selection (cascade + registry resolution)", () => {
   it("routes a per-call .with({ harness }) to the named port, over the default", async () => {
     class P extends Program<typeof stringInput, string>(stringInput) {
       async main(): Promise<string> {
-        return await this.agent.with({ harness: "b" }).text`go`;
+        return await this.agent.with({ harness: "b" }).prose`go`;
       }
     }
     const out = await runProgram(P, "x", {
@@ -43,7 +43,7 @@ describe("harness selection (cascade + registry resolution)", () => {
   it("uses defaultHarness when no narrower scope selects one", async () => {
     class P extends Program<typeof stringInput, string>(stringInput) {
       async main(): Promise<string> {
-        return await this.agent.text`go`;
+        return await this.agent.prose`go`;
       }
     }
     const out = await runProgram(P, "x", {
@@ -57,7 +57,7 @@ describe("harness selection (cascade + registry resolution)", () => {
   it("treats a sole registered harness as the default (no defaultHarness needed)", async () => {
     class P extends Program<typeof stringInput, string>(stringInput) {
       async main(): Promise<string> {
-        return await this.agent.text`go`;
+        return await this.agent.prose`go`;
       }
     }
     const out = await runProgram(P, "x", {
@@ -71,7 +71,7 @@ describe("harness selection (cascade + registry resolution)", () => {
     @foom.config({ harness: "b" })
     class P extends Program<typeof stringInput, string>(stringInput) {
       async main(): Promise<string> {
-        return await this.agent.text`go`;
+        return await this.agent.prose`go`;
       }
     }
     // No defaultHarness, two harnesses: the class config is the only selector.
@@ -84,7 +84,7 @@ describe("harness selection (cascade + registry resolution)", () => {
     // its method config is live) opens its own value turn on the "sub" harness.
     class Orchestrator extends Program<typeof stringInput, string>(stringInput) {
       async main(): Promise<string> {
-        return await this.agent.text`delegate`;
+        return await this.agent.prose`delegate`;
       }
 
       @foom.expose()
@@ -111,7 +111,7 @@ describe("harness selection (cascade + registry resolution)", () => {
   it("rejects an unknown harness name with a typed config error", async () => {
     class P extends Program<typeof stringInput, string>(stringInput) {
       async main(): Promise<string> {
-        return await this.agent.with({ harness: "nope" }).text`go`;
+        return await this.agent.with({ harness: "nope" }).prose`go`;
       }
     }
     await expect(
@@ -125,7 +125,7 @@ describe("harness selection (cascade + registry resolution)", () => {
   it("rejects when several harnesses are registered but none is selected", async () => {
     class P extends Program<typeof stringInput, string>(stringInput) {
       async main(): Promise<string> {
-        return await this.agent.text`go`;
+        return await this.agent.prose`go`;
       }
     }
     await expect(
@@ -139,7 +139,7 @@ describe("harness selection (cascade + registry resolution)", () => {
   it("rejects an empty harness registry at setup", async () => {
     class P extends Program<typeof stringInput, string>(stringInput) {
       async main(): Promise<string> {
-        return await this.agent.text`go`;
+        return await this.agent.prose`go`;
       }
     }
     await expect(runProgram(P, "x", { harnesses: {}, model: "fake" })).rejects.toMatchObject({
@@ -151,7 +151,7 @@ describe("harness selection (cascade + registry resolution)", () => {
   it("rejects a defaultHarness that is not in the registry", async () => {
     class P extends Program<typeof stringInput, string>(stringInput) {
       async main(): Promise<string> {
-        return await this.agent.text`go`;
+        return await this.agent.prose`go`;
       }
     }
     await expect(

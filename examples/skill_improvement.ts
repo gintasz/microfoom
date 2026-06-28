@@ -9,15 +9,13 @@ import { z } from "zod";
 })
 export default class SkillImprovement extends Program(z.void()) {
   async main(): Promise<void> {
-    await this.agent.with({ label: "init-0" }).value(z.any())`
+    await this.agent.with({ label: "init-0" }).do`
         create an empty file ./SKILL-0.md
-		create an file ./CHANGES-0.md with str "Created empty file."
-        call foom_return 1`;
+        create ./CHANGES-0.md with the text "Created empty file."`;
     for (let i = 0; i < 3; i++) {
       if (i > 0) {
-        await this.agent.with({ label: `init-${i}` }).value(z.any())`
-                copy file ./SKILL-${i - 1}.md to ./SKILL-${i}.md using bash
-                call foom_return 1`;
+        await this.agent.with({ label: `init-${i}` }).do`
+                copy file ./SKILL-${i - 1}.md to ./SKILL-${i}.md using bash`;
       }
       const batch_size = 3;
       const prompts = await this.agent
@@ -30,12 +28,9 @@ export default class SkillImprovement extends Program(z.void()) {
             prompt += <ask it to use ./SKILL-${i}.md file by providing path to it>
             prompt += <ask it to dump PRD to ./PRD-${i}-i.md file>
         
-        prompts = make_prompt(0..${batch_size})
-        call foom_return with prompts array`;
+        prompts = make_prompt(0..${batch_size})`;
       await Promise.all(
-        prompts.map(
-          (prompt, j) => this.agent.with({ label: `create-prd-${j}` }).value(z.any())`${prompt}`,
-        ),
+        prompts.map((prompt, j) => this.agent.with({ label: `create-prd-${j}` }).do`${prompt}`),
       );
       await this.improveSkill(i, batch_size);
     }
@@ -46,7 +41,7 @@ export default class SkillImprovement extends Program(z.void()) {
     thinking: "high",
   })
   async improveSkill(iteration: number, batch_size: number): Promise<void> {
-    await this.agent.value(z.any())`
+    await this.agent.do`
         goal: create a PRD-writing skill for agent that takes in a brief description of software system and outputs a complete specification of it
         goal kpi:
             a = (vision, foresight, cohesion, human readability, coherence, production-readiness, non-mvp'ness*) of prd

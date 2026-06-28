@@ -21,9 +21,6 @@ const name = z.string();
 })
 export default class Hello extends Program(name) {
   async main(who: string): Promise<string> {
-    return await this.agent.value(z.string())`
-      Call the foom_return tool with a warm, one-sentence greeting for ${who}.
-      Respond ONLY with the foom_return tool call — no prose.
-    `;
+    return await this.agent.value(z.string())`a warm, one-sentence greeting for ${who}`;
   }
 }

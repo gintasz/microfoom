@@ -26,6 +26,7 @@ import {
   CONTROL_TOOL_SNIPPETS,
   CONTROL_TOOLS,
   DEFAULT_THROW_CODE,
+  DONE_RETURN_DESCRIPTION,
   TOOL_RESULTS,
 } from "./protocol.js";
 import type {
@@ -63,15 +64,18 @@ export interface ProgramTurnContext {
   readonly depth: () => number;
 }
 
-/** Whether the turn ends in prose or a schema-validated value. */
+/** How a turn ends: streamed prose (`text`), a schema-validated value, or `do` —
+ *  act via tools and terminate with a no-arg foom_return (no value, cheap). */
 export type TurnMode =
   | { readonly kind: "text" }
-  | { readonly kind: "value"; readonly schema: StandardSchemaV1 };
+  | { readonly kind: "value"; readonly schema: StandardSchemaV1 }
+  | { readonly kind: "do" };
 
 /** What a turn produced. */
 export type TurnOutcome =
   | { readonly kind: "text"; readonly text: string }
-  | { readonly kind: "value"; readonly value: unknown };
+  | { readonly kind: "value"; readonly value: unknown }
+  | { readonly kind: "do" };
 
 /** Effective caps for a turn (already cascaded/resolved). */
 export interface ResolvedCaps {
@@ -239,6 +243,19 @@ function buildTurnTools(
           return repairableThenMaybeStop(TOOL_RESULTS.invalidReturn(formatIssues(result.issues)));
         }
         capture.value = result.value;
+        capture.has = true;
+        return stop(TOOL_RESULTS.returned);
+      },
+    });
+  } else if (mode.kind === "do") {
+    // A `do` turn carries no value: foom_return takes no arguments and merely
+    // terminates the turn (mirrors `return;`). The cheap exit that avoids a final
+    // prose essay — same mechanism as value mode, minus the payload + validation.
+    tools.push({
+      name: CONTROL_TOOLS.return,
+      description: DONE_RETURN_DESCRIPTION,
+      parameters: objectSchema({}, []),
+      execute: async () => {
         capture.has = true;
         return stop(TOOL_RESULTS.returned);
       },
@@ -416,12 +433,19 @@ export async function runProgramTurn(params: RunTurnParams): Promise<TurnOutcome
       throw new FoomtimeThrowError(capture.thrown.message, capture.thrown.code);
     }
     if (params.mode.kind === "text") return { kind: "text", text: assistantText };
-    if (capture.has) return { kind: "value", value: capture.value };
+    if (capture.has) {
+      return params.mode.kind === "do" ? { kind: "do" } : { kind: "value", value: capture.value };
+    }
 
     if (attempt >= params.caps.repairAttempts) {
-      throw new FoomtimeReturnError("the agent produced no foom_return value");
+      throw new FoomtimeReturnError(
+        params.mode.kind === "do"
+          ? "the agent did not signal completion (no foom_return)"
+          : "the agent produced no foom_return value",
+      );
     }
     emitter.emit?.({ type: "repair", span: emitter.span, attempt: attempt + 1 });
-    request.prompt = TOOL_RESULTS.missingReturn;
+    request.prompt =
+      params.mode.kind === "do" ? TOOL_RESULTS.missingDone : TOOL_RESULTS.missingReturn;
   }
 }

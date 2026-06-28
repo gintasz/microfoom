@@ -48,7 +48,7 @@ function setup(omitHarnessBasePrompt: boolean) {
 
 class Greeter extends Program<typeof stringSchema, string>(stringSchema) {
   async main(): Promise<string> {
-    return await this.agent.text`go`;
+    return await this.agent.prose`go`;
   }
 }
 

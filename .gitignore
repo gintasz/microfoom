@@ -1,9 +1,11 @@
 node_modules/
 dist/
 coverage/
+.pnpm-store/
 .DS_Store
 **/etc/temp/
 .tsbuildinfo
+worktrees/
 
 .serena/
 .pi/

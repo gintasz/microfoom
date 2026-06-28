@@ -36,7 +36,7 @@ describe("pi harness session via faux provider (deterministic)", () => {
     const { openSession, model } = harnessFor([fauxAssistantMessage("hello from pi")]);
     class Greeter extends Program<typeof stringSchema, string>(stringSchema) {
       async main(): Promise<string> {
-        return await this.agent.text`Greet me.`;
+        return await this.agent.prose`Greet me.`;
       }
     }
     const out = await runProgram(Greeter, "x", { harnesses: { pi: openSession }, model });
@@ -69,8 +69,8 @@ describe("pi harness session via faux provider (deterministic)", () => {
     class P extends Program<typeof stringSchema, string>(stringSchema) {
       async main(): Promise<string> {
         const base = this.agent.session();
-        await base.text`start`;
-        return await base.fork().text`continue`;
+        await base.prose`start`;
+        return await base.fork().prose`continue`;
       }
     }
     const out = await runProgram(P, "x", { harnesses: { pi: openSession }, model });

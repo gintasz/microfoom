@@ -48,7 +48,7 @@ describe("system prompt fidelity", () => {
   it("turn_meta carries the EXACT system prompt handed to the harness", async () => {
     class P extends Program<typeof stringInput, string>(stringInput) {
       async main(): Promise<string> {
-        return await this.agent.text`go`;
+        return await this.agent.prose`go`;
       }
 
       @foom.expose({ announcement: "Returns a 0–100 risk score for a given finding count." })
@@ -94,7 +94,7 @@ describe("system prompt fidelity", () => {
 
     class P extends Program<typeof stringInput, string>(stringInput) {
       async main(): Promise<string> {
-        return await this.agent.text`go`;
+        return await this.agent.prose`go`;
       }
     }
 
@@ -121,8 +121,8 @@ describe("tools cascade (default → @foom.config → .with)", () => {
     @foom.config({ tools: ["read", "bash"] })
     class P extends Program<typeof stringInput, string>(stringInput) {
       async main(): Promise<string> {
-        const a = await this.agent.text`from class config`;
-        const b = await this.agent.with({ tools: ["read"] }).text`narrowed`;
+        const a = await this.agent.prose`from class config`;
+        const b = await this.agent.with({ tools: ["read"] }).prose`narrowed`;
         return `${a}${b}`;
       }
     }
@@ -135,7 +135,7 @@ describe("tools cascade (default → @foom.config → .with)", () => {
     const sink = emptySink();
     class P extends Program<typeof stringInput, string>(stringInput) {
       async main(): Promise<string> {
-        return await this.agent.text`go`;
+        return await this.agent.prose`go`;
       }
     }
     await runProgram(P, "x", {

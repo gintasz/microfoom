@@ -24,7 +24,13 @@ export function fakeOpenSession(): OpenSession {
   let calls = 0;
   const session: HarnessSession = {
     async runTurn(request: SessionTurnRequest): Promise<SessionTurnResult> {
-      const reply = `fake reply for: ${request.prompt.slice(0, 60).replace(/\s+/g, " ").trim()}`;
+      // Echo the AUTHORED prompt — strip microfoom's injected runtime notice block so
+      // the fake's reply doesn't parrot the protocol instructions back at the user.
+      const authored = request.prompt.replace(
+        /<!-- microfoom:begin -->[\s\S]*?<!-- microfoom:end -->/g,
+        " ",
+      );
+      const reply = `fake reply for: ${authored.slice(0, 60).replace(/\s+/g, " ").trim()}`;
       const emit = request.onEvent;
       // Drive the same transcript stream a real harness would, so the panel/TUI
       // shows reasoning + prose + tool calls offline (no model).
