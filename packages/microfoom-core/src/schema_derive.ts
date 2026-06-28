@@ -46,6 +46,49 @@ function arrayElementType(type: ts.Type, checker: ts.TypeChecker): ts.Type | und
   return undefined;
 }
 
+/** Shape for a union: an `enum` when every member is a string/number literal,
+ *  else `anyOf`; the check accepts a value any member accepts. */
+function unionShape(type: ts.UnionType, checker: ts.TypeChecker): TypeShape {
+  const shapes = type.types.map((member) => typeToShape(member, checker));
+  const consts = type.types.every((member) => member.isStringLiteral() || member.isNumberLiteral());
+  const json: JsonSchema = consts
+    ? { enum: type.types.map((member) => (member as ts.LiteralType).value) }
+    : { anyOf: shapes.map((shape) => shape.json) };
+  return { json, check: (v) => shapes.some((shape) => shape.check(v)) };
+}
+
+/** Shape for an object type with named properties (each prop recursed, optionals
+ *  tracked). Returns undefined for a property-less object, so the caller falls
+ *  back to the open `anyShape`. */
+function objectShape(type: ts.Type, checker: ts.TypeChecker): TypeShape | undefined {
+  const properties = type.getProperties();
+  if (properties.length === 0) return undefined;
+  const props: Record<string, JsonSchema> = {};
+  const required: string[] = [];
+  const checks: Array<{ name: string; optional: boolean; check: (v: unknown) => boolean }> = [];
+  for (const prop of properties) {
+    const declaration = prop.valueDeclaration ?? prop.declarations?.[0];
+    const propType = declaration
+      ? checker.getTypeOfSymbolAtLocation(prop, declaration)
+      : checker.getDeclaredTypeOfSymbol(prop);
+    const shape = typeToShape(propType, checker);
+    const optional = (prop.flags & ts.SymbolFlags.Optional) !== 0;
+    props[prop.getName()] = shape.json;
+    if (!optional) required.push(prop.getName());
+    checks.push({ name: prop.getName(), optional, check: shape.check });
+  }
+  return {
+    json: { type: "object", properties: props, required, additionalProperties: false },
+    check: (v) => {
+      if (typeof v !== "object" || v === null) return false;
+      const record = v as Record<string, unknown>;
+      return checks.every((entry) =>
+        entry.name in record ? entry.check(record[entry.name]) : entry.optional,
+      );
+    },
+  };
+}
+
 function typeToShape(type: ts.Type, checker: ts.TypeChecker): TypeShape {
   const flags = type.flags;
   if (flags & ts.TypeFlags.StringLiteral) {
@@ -65,16 +108,7 @@ function typeToShape(type: ts.Type, checker: ts.TypeChecker): TypeShape {
   if (flags & (ts.TypeFlags.Boolean | ts.TypeFlags.BooleanLiteral)) {
     return { json: { type: "boolean" }, check: (v) => typeof v === "boolean" };
   }
-  if (type.isUnion()) {
-    const shapes = type.types.map((member) => typeToShape(member, checker));
-    const consts = type.types.every(
-      (member) => member.isStringLiteral() || member.isNumberLiteral(),
-    );
-    const json: JsonSchema = consts
-      ? { enum: type.types.map((member) => (member as ts.LiteralType).value) }
-      : { anyOf: shapes.map((shape) => shape.json) };
-    return { json, check: (v) => shapes.some((shape) => shape.check(v)) };
-  }
+  if (type.isUnion()) return unionShape(type, checker);
   const element = arrayElementType(type, checker);
   if (element !== undefined) {
     const item = typeToShape(element, checker);
@@ -84,33 +118,8 @@ function typeToShape(type: ts.Type, checker: ts.TypeChecker): TypeShape {
     };
   }
   if (flags & ts.TypeFlags.Object) {
-    const properties = type.getProperties();
-    if (properties.length > 0) {
-      const props: Record<string, JsonSchema> = {};
-      const required: string[] = [];
-      const checks: Array<{ name: string; optional: boolean; check: (v: unknown) => boolean }> = [];
-      for (const prop of properties) {
-        const declaration = prop.valueDeclaration ?? prop.declarations?.[0];
-        const propType = declaration
-          ? checker.getTypeOfSymbolAtLocation(prop, declaration)
-          : checker.getDeclaredTypeOfSymbol(prop);
-        const shape = typeToShape(propType, checker);
-        const optional = (prop.flags & ts.SymbolFlags.Optional) !== 0;
-        props[prop.getName()] = shape.json;
-        if (!optional) required.push(prop.getName());
-        checks.push({ name: prop.getName(), optional, check: shape.check });
-      }
-      return {
-        json: { type: "object", properties: props, required, additionalProperties: false },
-        check: (v) => {
-          if (typeof v !== "object" || v === null) return false;
-          const record = v as Record<string, unknown>;
-          return checks.every((entry) =>
-            entry.name in record ? entry.check(record[entry.name]) : entry.optional,
-          );
-        },
-      };
-    }
+    const shape = objectShape(type, checker);
+    if (shape !== undefined) return shape;
   }
   return anyShape;
 }
@@ -171,6 +180,27 @@ function compileSource(filePath: string): { checker: ts.TypeChecker; source: ts.
   return { checker: program.getTypeChecker(), source };
 }
 
+/** Validate a decoded arguments object against the derived param specs: one issue
+ *  per missing-required or wrong-typed argument (optional + absent is fine). */
+function collectArgIssues(
+  specs: readonly ParamSpec[],
+  record: Record<string, unknown>,
+): StandardSchemaV1.Issue[] {
+  const issues: StandardSchemaV1.Issue[] = [];
+  for (const spec of specs) {
+    if (!(spec.name in record)) {
+      if (!spec.optional) {
+        issues.push({ message: `missing required argument "${spec.name}"`, path: [spec.name] });
+      }
+      continue;
+    }
+    if (!spec.shape.check(record[spec.name])) {
+      issues.push({ message: `argument "${spec.name}" has the wrong type`, path: [spec.name] });
+    }
+  }
+  return issues;
+}
+
 function buildDerived(
   method: ts.MethodDeclaration,
   checker: ts.TypeChecker,
@@ -209,18 +239,7 @@ function buildDerived(
       return { issues: [{ message: "arguments must be an object" }] };
     }
     const record = input as Record<string, unknown>;
-    const issues: StandardSchemaV1.Issue[] = [];
-    for (const spec of specs) {
-      const present = spec.name in record;
-      if (!present) {
-        if (!spec.optional)
-          issues.push({ message: `missing required argument "${spec.name}"`, path: [spec.name] });
-        continue;
-      }
-      if (!spec.shape.check(record[spec.name])) {
-        issues.push({ message: `argument "${spec.name}" has the wrong type`, path: [spec.name] });
-      }
-    }
+    const issues = collectArgIssues(specs, record);
     return issues.length > 0 ? { issues } : { value: record };
   });
 
