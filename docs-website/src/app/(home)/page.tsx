@@ -35,9 +35,6 @@ export default function HomePage() {
           width={112}
           height={112}
         />
-        <h1 className="bg-gradient-to-br from-indigo-400 to-indigo-600 bg-clip-text text-5xl font-bold tracking-tight text-transparent sm:text-6xl">
-          microfoom
-        </h1>
         <p className="max-w-xl text-lg text-fd-muted-foreground">
           Coordination a single prompt can&apos;t express.
         </p>
