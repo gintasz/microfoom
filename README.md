@@ -24,8 +24,8 @@ Both put real control flow around the model instead of trusting one prompt. Coor
 Microfoom is the toolkit for writing coordination scripts.
 
 - **Cross-harness** — compose agents running on different model harnesses in one script.
-- **Cross-session** — ???
-- **Cross-model** — ???
+- **Cross-session** — run parallel sessions, and `fork()` any one to branch its transcript, all coordinated in a single script.
+- **Cross-model** — route each turn to a different model: cheap for the easy steps, frontier for the hard one.
 - **Lean & ergonomic API** — a handful of primitives; as easy to read as it is to write.
 - **Schema-validated** — structured turns return typed, validated values; malformed output is auto-repaired, then fails loudly.
 - **Traced out of the box** — every span, turn, and token is captured as a tree you can inspect, for the terminal UI or your own exporter.
@@ -158,6 +158,7 @@ Set config with `@foom.config({ ... })` on a class or method, with `.with({ ... 
 | `maxBudgetUsd` | Cost ceiling; exceeding aborts. Tighten-only. |
 | `maxOutputTokens` | Output-token ceiling. Tighten-only. |
 | `maxCallDepth` | Max `foom_call` re-entry depth. Tighten-only. |
+| `maxConcurrentTurns` | Max concurrent model turns in one run. Tighten-only. FOOM tool handlers do not consume a slot, so nested `foom_call` re-entry cannot deadlock a single-slot run. |
 | `maxTurnDuration` | Wall-clock ceiling for one turn (e.g. `"30s"`). Tighten-only. |
 
 A whole-program wall-clock ceiling is a `static maxProgramDuration` on the program class (e.g. `"5m"`).
@@ -168,6 +169,7 @@ A harness is the model-loop adapter a turn runs on. Microfoom ships two:
 
 - **pi** ([`@microfoom/pi-adapter`](packages/pi-adapter)) — runs on the [pi](https://www.npmjs.com/package/@earendil-works/pi-agent-core) agent SDK; resolves model/auth from `~/.pi`.
 - **claudecli** ([`@microfoom/claudecli-adapter`](packages/claudecli-adapter)) — drives the headless `claude` CLI (`claude -p`) via an in-process MCP server.
+- **codexcli** ([`@microfoom/codexcli-adapter`](packages/codexcli-adapter)) — drives the headless `codex` CLI via an in-process MCP server. Note: `maxBudgetUsd`, `omitBasePrompt`, `maxOutputTokens`, `plugins`, `allowedTools` — ignored, no effect. Also, no token-level streaming (live TUI = chunky for codex).
 
 Register the harnesses you want under names, then select per scope via `@foom.config({ harness })` / `.with({ harness })`:
 

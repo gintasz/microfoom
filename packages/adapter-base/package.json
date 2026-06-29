@@ -1,0 +1,47 @@
+{
+  "name": "@microfoom/adapter-base",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Shared substrate for microfoom harness adapters: an in-process MCP tool server and stream→turn-result plumbing",
+  "keywords": [
+    "microfoom",
+    "agents",
+    "llm",
+    "harness",
+    "mcp",
+    "typescript"
+  ],
+  "license": "MIT",
+  "author": "Gintas Zenevskis <gintas.zenevskis@gmail.com>",
+  "homepage": "https://gintasz.github.io/microfoom/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gintasz/microfoom.git",
+    "directory": "packages/adapter-base"
+  },
+  "bugs": "https://github.com/gintasz/microfoom/issues",
+  "engines": {
+    "node": ">=24"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "api": "api-extractor run --local --verbose",
+    "api:check": "api-extractor run --verbose"
+  },
+  "dependencies": {
+    "@microfoom/core": "workspace:*"
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "name": "@microfoom/codexcli-adapter",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Microfoom harness adapter for the OpenAI Codex CLI",
+  "keywords": [
+    "microfoom",
+    "agents",
+    "llm",
+    "harness",
+    "codex",
+    "openai",
+    "typescript"
+  ],
+  "license": "MIT",
+  "author": "Gintas Zenevskis <gintas.zenevskis@gmail.com>",
+  "homepage": "https://gintasz.github.io/microfoom/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gintasz/microfoom.git",
+    "directory": "packages/codexcli-adapter"
+  },
+  "bugs": "https://github.com/gintasz/microfoom/issues",
+  "engines": {
+    "node": ">=24"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "api": "api-extractor run --local --verbose",
+    "api:check": "api-extractor run --verbose"
+  },
+  "dependencies": {
+    "@microfoom/adapter-base": "workspace:*",
+    "@microfoom/core": "workspace:*"
+  }
+}

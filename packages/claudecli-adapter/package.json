@@ -43,6 +43,7 @@
     "api:check": "api-extractor run --verbose"
   },
   "dependencies": {
+    "@microfoom/adapter-base": "workspace:*",
     "@microfoom/core": "workspace:*"
   }
 }

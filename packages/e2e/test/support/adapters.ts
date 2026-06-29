@@ -21,6 +21,7 @@ import {
 import type { OpenSession } from "@microfoom/core";
 import { createPiOpenSession } from "@microfoom/pi-adapter";
 import { claudecliE2EAdapter } from "./claudecli.ts";
+import { codexcliE2EAdapter } from "./codexcli.ts";
 import { opencodeE2EAdapter } from "./opencode.ts";
 import type { ScriptStep } from "./script.ts";
 
@@ -93,6 +94,7 @@ function piE2EAdapter(): E2EAdapter {
 const adapters: readonly E2EAdapter[] = [
   piE2EAdapter(),
   claudecliE2EAdapter(),
+  codexcliE2EAdapter(),
   opencodeE2EAdapter(),
 ];
 
