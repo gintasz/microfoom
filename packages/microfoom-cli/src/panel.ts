@@ -28,15 +28,15 @@ export function attachPanel(stream: NodeJS.WriteStream): Panel {
     log(renderRunTree(buildRunTree(events), { width, color: true }));
   };
   const schedule = (): void => {
-    if (timer === undefined) timer = setTimeout(flush, REDRAW_MS);
+    timer ??= setTimeout(flush, REDRAW_MS);
   };
 
   return {
-    onEvent: (event) => {
+    onEvent: (event: AgentEvent): void => {
       events.push(event);
       schedule();
     },
-    done: () => {
+    done: (): void => {
       if (timer !== undefined) clearTimeout(timer);
       flush();
       log.done();

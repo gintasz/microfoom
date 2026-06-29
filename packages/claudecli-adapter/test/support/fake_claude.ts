@@ -85,8 +85,8 @@ export function fakeClaudeFactory(steps: readonly FakeStep[]): ClaudeProcessFact
           name: step.name,
           arguments: step.args,
         });
-        const result = (response.result ?? {}) as {
-          content?: { text?: string }[];
+        const result = (response["result"] ?? {}) as {
+          content?: Array<{ text?: string }>;
           isError?: boolean;
         };
         const text = (result.content ?? []).map((part) => part.text ?? "").join("");

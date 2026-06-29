@@ -72,8 +72,8 @@ function scriptedFactory(steps: readonly ScriptStep[]): ClaudeProcessFactory {
           name: step.name,
           arguments: step.args,
         });
-        const result = (response.result ?? {}) as {
-          content?: { text?: string }[];
+        const result = (response["result"] ?? {}) as {
+          content?: Array<{ text?: string }>;
           isError?: boolean;
         };
         const text = (result.content ?? []).map((part) => part.text ?? "").join("");
@@ -122,7 +122,7 @@ function scriptedFactory(steps: readonly ScriptStep[]): ClaudeProcessFactory {
 
 /** The claudecli harness adapter, driven live and scripted. */
 export function claudecliE2EAdapter(): E2EAdapter {
-  const liveModel = process.env.MICROFOOM_CLAUDECLI_MODEL ?? "sonnet";
+  const liveModel = process.env["MICROFOOM_CLAUDECLI_MODEL"] ?? "sonnet";
   return {
     name: "claudecli",
     live: {

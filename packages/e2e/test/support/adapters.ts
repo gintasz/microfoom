@@ -58,7 +58,7 @@ function toFauxStep(step: ScriptStep): FauxSteps[number] {
 
 /** The reference adapter: microfoom's pi harness. */
 export function piE2EAdapter(): E2EAdapter {
-  const liveModel = process.env.MICROFOOM_E2E_MODEL ?? "openrouter/deepseek/deepseek-v4-flash";
+  const liveModel = process.env["MICROFOOM_E2E_MODEL"] ?? "openrouter/deepseek/deepseek-v4-flash";
   return {
     name: "pi",
     live: {

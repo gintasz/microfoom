@@ -20,7 +20,8 @@ describe("mcp handler (pure)", () => {
   it("lists tools by canonical name with prefix-renamed descriptions", async () => {
     const { handle } = createMcpHandler([tool({ name: "foom_throw" }), tool()], "foom");
     const res = await handle({ jsonrpc: "2.0", id: 1, method: "tools/list" });
-    const tools = (res?.result as { tools: { name: string; description: string }[] }).tools;
+    const tools = (res?.["result"] as { tools: Array<{ name: string; description: string }> })
+      .tools;
     expect(tools.map((t) => t.name)).toEqual(["foom_throw", "foom_return"]);
     // cross-reference in the description is rewritten to the model-visible name
     expect(tools[1]?.description).toContain("mcp__foom__foom_throw");
@@ -34,7 +35,7 @@ describe("mcp handler (pure)", () => {
       method: "tools/call",
       params: { name: "foom_return", arguments: { value: 9 } },
     });
-    expect((res?.result as { content: { text: string }[] }).content[0]?.text).toBe(
+    expect((res?.["result"] as { content: Array<{ text: string }> }).content[0]?.text).toBe(
       'got {"value":9}',
     );
     expect(terminated()).toBe(true);
@@ -53,7 +54,7 @@ describe("mcp handler (pure)", () => {
       method: "tools/call",
       params: { name: "nope", arguments: {} },
     });
-    expect(res?.error).toBeDefined();
+    expect(res?.["error"]).toBeDefined();
   });
 });
 
@@ -89,7 +90,7 @@ describe("mcp http server", () => {
         id: 2,
         method: "tools/call",
         params: { name: "foom_return", arguments: { value: 5 } },
-      })) as { result: { content: { text: string }[] } };
+      })) as { result: { content: Array<{ text: string }> } };
       expect(call.result.content[0]?.text).toBe("ok");
       expect(executed).toEqual({ value: 5 });
     } finally {

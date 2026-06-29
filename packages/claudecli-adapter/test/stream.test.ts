@@ -2,7 +2,10 @@ import type { StreamEvent } from "@microfoom/core";
 import { describe, expect, it } from "vitest";
 import { createTurnReader, usageFromResult } from "../src/stream.ts";
 
-const lines = (reader: ReturnType<typeof createTurnReader>, objs: Record<string, unknown>[]) => {
+const lines = (
+  reader: ReturnType<typeof createTurnReader>,
+  objs: Array<Record<string, unknown>>,
+) => {
   for (const obj of objs) reader.handle(obj);
 };
 

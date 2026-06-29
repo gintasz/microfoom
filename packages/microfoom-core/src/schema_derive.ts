@@ -54,7 +54,7 @@ function unionShape(type: ts.UnionType, checker: ts.TypeChecker): TypeShape {
   const json: JsonSchema = consts
     ? { enum: type.types.map((member) => (member as ts.LiteralType).value) }
     : { anyOf: shapes.map((shape) => shape.json) };
-  return { json, check: (v) => shapes.some((shape) => shape.check(v)) };
+  return { json, check: (v: unknown): boolean => shapes.some((shape) => shape.check(v)) };
 }
 
 /** Shape for an object type with named properties (each prop recursed, optionals
@@ -79,7 +79,7 @@ function objectShape(type: ts.Type, checker: ts.TypeChecker): TypeShape | undefi
   }
   return {
     json: { type: "object", properties: props, required, additionalProperties: false },
-    check: (v) => {
+    check: (v: unknown): boolean => {
       if (typeof v !== "object" || v === null) return false;
       const record = v as Record<string, unknown>;
       return checks.every((entry) =>
@@ -93,20 +93,20 @@ function typeToShape(type: ts.Type, checker: ts.TypeChecker): TypeShape {
   const flags = type.flags;
   if (flags & ts.TypeFlags.StringLiteral) {
     const value = (type as ts.StringLiteralType).value;
-    return { json: { const: value }, check: (v) => v === value };
+    return { json: { const: value }, check: (v: unknown): boolean => v === value };
   }
   if (flags & ts.TypeFlags.NumberLiteral) {
     const value = (type as ts.NumberLiteralType).value;
-    return { json: { const: value }, check: (v) => v === value };
+    return { json: { const: value }, check: (v: unknown): boolean => v === value };
   }
   if (flags & (ts.TypeFlags.String | ts.TypeFlags.TemplateLiteral)) {
-    return { json: { type: "string" }, check: (v) => typeof v === "string" };
+    return { json: { type: "string" }, check: (v: unknown): boolean => typeof v === "string" };
   }
   if (flags & ts.TypeFlags.Number) {
-    return { json: { type: "number" }, check: (v) => typeof v === "number" };
+    return { json: { type: "number" }, check: (v: unknown): boolean => typeof v === "number" };
   }
   if (flags & (ts.TypeFlags.Boolean | ts.TypeFlags.BooleanLiteral)) {
-    return { json: { type: "boolean" }, check: (v) => typeof v === "boolean" };
+    return { json: { type: "boolean" }, check: (v: unknown): boolean => typeof v === "boolean" };
   }
   if (type.isUnion()) return unionShape(type, checker);
   const element = arrayElementType(type, checker);
@@ -114,7 +114,7 @@ function typeToShape(type: ts.Type, checker: ts.TypeChecker): TypeShape {
     const item = typeToShape(element, checker);
     return {
       json: { type: "array", items: item.json },
-      check: (v) => Array.isArray(v) && v.every((entry) => item.check(entry)),
+      check: (v: unknown): boolean => Array.isArray(v) && v.every((entry) => item.check(entry)),
     };
   }
   if (flags & ts.TypeFlags.Object) {

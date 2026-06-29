@@ -101,3 +101,6 @@ predev
 Mtok
 ktok
 worktrees
+combinator
+combinators
+memoized

@@ -12,6 +12,7 @@ import type { AgentEvent } from "@microfoom/core/trace";
 import { createPiOpenSession } from "@microfoom/pi-adapter";
 import { createCliRenderer } from "@opentui/core";
 import { createRoot } from "@opentui/react";
+import { modelFromEnv, tuiThemeFromEnv } from "./env.js";
 import { fakeOpenSession } from "./fake.js";
 import { App } from "./tui/app.js";
 import { RERUN_EXIT_CODE } from "./tui/rerun.js";
@@ -99,23 +100,29 @@ async function runIntoStore(
   }
 }
 
+const TUI_PARSE_CONFIG = {
+  allowPositionals: true,
+  options: {
+    harness: { type: "string" },
+    model: { type: "string" },
+    thinking: { type: "string" },
+    tools: { type: "string" },
+    skills: { type: "string" },
+    plugins: { type: "string" },
+    input: { type: "string" },
+    theme: { type: "string" },
+    "omit-harness-prompt": { type: "boolean", default: false },
+    "system-prompt": { type: "boolean", default: false },
+    "full-user-msg": { type: "boolean", default: false },
+  },
+} as const;
+
+function parseTuiArgs(): ReturnType<typeof parseArgs<typeof TUI_PARSE_CONFIG>> {
+  return parseArgs(TUI_PARSE_CONFIG);
+}
+
 async function main(): Promise<void> {
-  const { values, positionals } = parseArgs({
-    allowPositionals: true,
-    options: {
-      harness: { type: "string" },
-      model: { type: "string" },
-      thinking: { type: "string" },
-      tools: { type: "string" },
-      skills: { type: "string" },
-      plugins: { type: "string" },
-      input: { type: "string" },
-      theme: { type: "string" },
-      "omit-harness-prompt": { type: "boolean", default: false },
-      "system-prompt": { type: "boolean", default: false },
-      "full-user-msg": { type: "boolean", default: false },
-    },
-  });
+  const { values, positionals } = parseTuiArgs();
 
   const file = positionals[0];
   if (file === undefined) {
@@ -128,8 +135,7 @@ async function main(): Promise<void> {
   const rawInput = values.input ?? positionals[1];
   const input = rawInput === undefined ? undefined : parseInput(rawInput);
   const harnessName = values.harness ?? "pi";
-  const model =
-    values.model ?? process.env.MICROFOOM_MODEL ?? "openrouter/deepseek/deepseek-v4-flash";
+  const model = values.model ?? modelFromEnv() ?? "openrouter/deepseek/deepseek-v4-flash";
   const openSession = openTuiHarness(harnessName, values["omit-harness-prompt"]);
   if (openSession === undefined) {
     process.stderr.write(`microfoom tui: unknown harness "${harnessName}"\n`);
@@ -158,7 +164,7 @@ async function main(): Promise<void> {
   // Theme precedence: explicit override (flag/env) → terminal OSC query → dark.
   // The OSC query is what correctly picks up VS Code's light terminal (COLORFGBG
   // is unreliable there), so we ask the terminal itself rather than guessing.
-  const mode = await resolveTheme(values.theme ?? process.env.MICROFOOM_TUI_THEME, renderer);
+  const mode = await resolveTheme(values.theme ?? tuiThemeFromEnv(), renderer);
   renderer.setBackgroundColor(paletteFor(mode).bg);
   // `r` exits with a sentinel; the node launcher respawns a fresh bun process so
   // the re-run picks up source edits (bun can't reload a module in-process).

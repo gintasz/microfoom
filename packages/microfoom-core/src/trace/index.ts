@@ -66,7 +66,8 @@ export function formatEvent(event: AgentEvent): string {
 
 /** An exporter that prints each event via `formatEvent` to the console. */
 export const consoleExporter: AgentTraceExporter = {
-  export: (event) => {
+  export: (event: AgentEvent): void => {
+    // biome-ignore lint/suspicious/noConsole: this exporter's sole purpose is to print trace events to the console (F8/OB1 renderer).
     console.log(formatEvent(event));
   },
 };

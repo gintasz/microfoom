@@ -15,7 +15,7 @@ import { afterAll, beforeAll, expect, test } from "vitest";
 
 /** Absolute path to bun (node-pty can't rely on the inherited PATH). */
 function resolveBun(): string {
-  const home = process.env.HOME ?? "";
+  const home = process.env["HOME"] ?? "";
   const candidates = [resolve(home, ".bun/bin/bun"), "/usr/local/bin/bun", "/opt/homebrew/bin/bun"];
   for (const candidate of candidates) if (existsSync(candidate)) return candidate;
   try {

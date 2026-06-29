@@ -6,7 +6,7 @@
 // `tick()` returns how many lines to advance for the current wheel event: a relaxed
 // gesture stays at the base step (precise), a fast burst ramps the multiplier up.
 
-export interface ScrollAccel {
+interface ScrollAccel {
   tick(now?: number): number;
   reset(): void;
 }
@@ -30,14 +30,14 @@ export class MacScrollAccel implements ScrollAccel {
   private readonly window: number;
   private readonly ramp: number;
 
-  constructor(options: MacScrollOptions = {}) {
+  public constructor(options: MacScrollOptions = {}) {
     this.base = options.base ?? 2;
     this.max = options.max ?? 14;
     this.window = options.streakWindowMs ?? 160;
     this.ramp = options.rampLength ?? 12;
   }
 
-  tick(now: number = Date.now()): number {
+  public tick(now: number = Date.now()): number {
     const dt = now - this.last;
     this.last = now;
     this.streak = dt > this.window ? 0 : Math.min(this.streak + 1, this.ramp);
@@ -46,7 +46,7 @@ export class MacScrollAccel implements ScrollAccel {
     return Math.round(this.base + (this.max - this.base) * t ** 1.5);
   }
 
-  reset(): void {
+  public reset(): void {
     this.last = 0;
     this.streak = 0;
   }

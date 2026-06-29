@@ -28,7 +28,7 @@ export interface AgentTurnMeta {
 /** Everything accepted at a call/scope: cascading config plus per-call extras. */
 export type AgentOptions = AgentConfig & AgentRuntimeHooks & AgentCancellation & AgentTurnMeta;
 
-/** Structured tool advertisement — the value of @foom.expose({ tool }). */
+/** Structured tool advertisement — the value of `@foom.expose({ tool })`. */
 export interface AgentToolOptions {
   /** Human-readable description of what the tool does. */
   description?: string;

@@ -71,15 +71,15 @@ export function createMcpHandler(
   const callTool = async (request: JsonRpcRequest): Promise<Record<string, unknown>> => {
     const id = request.id ?? null;
     const params = request.params ?? {};
-    const tool = byName.get(params.name as string);
+    const tool = byName.get(params["name"] as string);
     if (tool === undefined) {
       return {
         jsonrpc: "2.0",
         id,
-        error: { code: -32602, message: `unknown tool: ${String(params.name)}` },
+        error: { code: -32602, message: `unknown tool: ${String(params["name"])}` },
       };
     }
-    const result = await tool.execute(params.arguments ?? {});
+    const result = await tool.execute(params["arguments"] ?? {});
     if (result.terminate === true) didTerminate = true;
     return {
       jsonrpc: "2.0",
@@ -100,7 +100,8 @@ export function createMcpHandler(
           id,
           result: {
             protocolVersion:
-              (request.params?.protocolVersion as string | undefined) ?? FALLBACK_PROTOCOL_VERSION,
+              (request.params?.["protocolVersion"] as string | undefined) ??
+              FALLBACK_PROTOCOL_VERSION,
             capabilities: { tools: {} },
             serverInfo: { name: serverName, version: "0.0.0" },
           },
@@ -120,6 +121,7 @@ export function createMcpHandler(
 }
 
 /** Read a whole request body as a UTF-8 string. */
+// eslint-disable-next-line @typescript-eslint/promise-function-async -- drains a request stream via `new Promise`; it resolves from `end`/`error` event handlers, not an await.
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     let body = "";
@@ -178,6 +180,7 @@ export async function startMcpServer(
   return {
     url: `http://127.0.0.1:${port}/mcp`,
     terminated,
+    // eslint-disable-next-line @typescript-eslint/promise-function-async -- wraps server.close's callback in `new Promise`; nothing to await.
     close: () =>
       new Promise<void>((resolve) => {
         server.closeAllConnections();

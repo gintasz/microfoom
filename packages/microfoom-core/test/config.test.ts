@@ -85,7 +85,7 @@ describe("config cascade (F5)", () => {
     fc.assert(
       fc.property(fc.array(configArb, { maxLength: 6 }), (scopes) => {
         const folded = mergeConfigChain(scopes);
-        const manual = scopes.reduce((acc, s) => mergeConfig(acc, s), {} as AgentConfig);
+        const manual = scopes.reduce<AgentConfig>((acc, s) => mergeConfig(acc, s), {});
         expect(folded).toEqual(manual);
       }),
     );

@@ -22,25 +22,27 @@ describe("parameter-schema derivation (ADR-0003)", () => {
 
   it("marks optional params as not required", () => {
     const { jsonSchema } = deriveMethodParameters(fixture, "Sample", "greet");
-    expect(jsonSchema.required).toEqual(["name"]);
-    expect((jsonSchema.properties as Record<string, unknown>).loud).toEqual({ type: "boolean" });
+    expect(jsonSchema["required"]).toEqual(["name"]);
+    expect((jsonSchema["properties"] as Record<string, unknown>)["loud"]).toEqual({
+      type: "boolean",
+    });
   });
 
   it("derives a literal union as an enum", () => {
     const { jsonSchema } = deriveMethodParameters(fixture, "Sample", "pick");
-    expect((jsonSchema.properties as Record<string, unknown>).choice).toEqual({
+    expect((jsonSchema["properties"] as Record<string, unknown>)["choice"]).toEqual({
       enum: ["a", "b", "c"],
     });
   });
 
   it("derives arrays and object params", () => {
     const sum = deriveMethodParameters(fixture, "Sample", "sum");
-    expect((sum.jsonSchema.properties as Record<string, unknown>).values).toEqual({
+    expect((sum.jsonSchema["properties"] as Record<string, unknown>)["values"]).toEqual({
       type: "array",
       items: { type: "number" },
     });
     const configure = deriveMethodParameters(fixture, "Sample", "configure");
-    expect((configure.jsonSchema.properties as Record<string, unknown>).options).toEqual({
+    expect((configure.jsonSchema["properties"] as Record<string, unknown>)["options"]).toEqual({
       type: "object",
       properties: { id: { type: "string" }, count: { type: "number" } },
       required: ["id", "count"],

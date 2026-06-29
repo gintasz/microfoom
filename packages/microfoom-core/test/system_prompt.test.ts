@@ -26,7 +26,7 @@ interface Sink {
   systemPrompt?: string;
   tools?: string[];
   /** request.allowedTools captured per turn, in order. */
-  readonly allowedTools: (readonly string[] | undefined)[];
+  readonly allowedTools: Array<readonly string[] | undefined>;
 }
 
 const emptySink = (): Sink => ({ allowedTools: [] });

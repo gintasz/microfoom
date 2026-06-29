@@ -35,8 +35,8 @@ const modelsSchema = makeStandardSchema<HarnessModels>((input) => {
   if (
     typeof input === "object" &&
     input !== null &&
-    typeof (input as Record<string, unknown>).piModel === "string" &&
-    typeof (input as Record<string, unknown>).cliModel === "string"
+    typeof (input as Record<string, unknown>)["piModel"] === "string" &&
+    typeof (input as Record<string, unknown>)["cliModel"] === "string"
   ) {
     return { value: input as HarnessModels };
   }
@@ -50,9 +50,7 @@ export interface TwoHarnessResult {
   readonly claude: number;
 }
 
-export class TwoHarnessProgram extends Program<typeof modelsSchema, TwoHarnessResult>(
-  modelsSchema,
-) {
+class TwoHarnessProgram extends Program<typeof modelsSchema, TwoHarnessResult>(modelsSchema) {
   async main(models: HarnessModels): Promise<TwoHarnessResult> {
     // Run both harnesses at once: independent sessions, no shared state, distinct
     // targets. Promise.all also makes the two harness loops overlap in wall-clock,

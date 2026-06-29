@@ -18,6 +18,7 @@ import {
   FoomtimeHarnessRejectedError,
   FoomtimeHarnessUnavailableError,
   type HarnessSession,
+  type HarnessSessionOptions,
   type NeutralToolDef,
   type OpenSession,
   type SessionTurnRequest,
