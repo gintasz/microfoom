@@ -33,8 +33,8 @@ Microfoom is the toolkit for writing coordination scripts.
 Requires **Node ≥ 24**.
 
 ```sh
-# Library + harness adapters
-npm install @microfoom/core @microfoom/pi-adapter @microfoom/claudecli-adapter
+# Library + harness adapter (see available adapters below)
+npm install @microfoom/core @microfoom/pi-adapter
 
 # The CLI runner — provides the `microfoom` command
 npm install -g @microfoom/cli
@@ -109,7 +109,24 @@ Inside `main()`, `this.agent` is your handle to the runtime — how your program
 - **`prose`** — a freeform natural-language turn: the ordinary case of the agent answering your prompt. Its reply *is* the return value — `await` for the full text.
 - **`do`** — an act turn: run instructions for their side effects and resolve to `void`. The cheapest mode — no schema, no final message. The agent is told to finish with a no-argument `foom_return`, which cuts the unnecessary yapping you'd otherwise pay for (the "I've successfully completed your request… let me know if you need anything else!" tail).
 
-## Control operations given to the agents
+
+## Tracing
+
+A **run** is one execution of your program — a single `runProgram(...)` (or `microfoom run …`), from `main()` to the value it returns. Microfoom records each run as a tree of **spans**, where a span is one named, timed unit of work: the run at the root, the turns it runs beneath it, and any exposed method the agent calls mid-turn nested inside that turn. Each span carries its duration and its token/cost usage, and that usage rolls up into its parent — so any span totals everything beneath it. Importing the trace entry lets you name your own spans and read the tree out:
+
+```ts
+import "@microfoom/core/trace";
+```
+
+- **`this.agent.scope("name")`** — open a span of your own to group related turns (which otherwise sit flat under `main`). Scopes nest, so the tree mirrors the shape of the task.
+- **`scope.annotate({ … })`** — attach structured key/values to that span (a route, an id, a count), so you can see which inputs led to which work.
+- **`scope.log(message, level?)`** — attach a message to that span. It lives on the span and shows next to it in the inspector, not in the stdout.
+- **`this.agent.onEvent(handler)` / `.export(exporter)`** — read the event stream yourself, or pipe it out to a custom exporter.
+
+The CLI's run panel and `--tui` inspector render exactly this tree.
+
+
+## How the agent talks to your program
 
 An agent running inside a microfoom runtime interacts with it through 4 native tools — surfaced as structured function calls.
 
@@ -118,7 +135,7 @@ An agent running inside a microfoom runtime interacts with it through 4 native t
 - `foom_throw(message, code?)` — abort the turn with a deliberate, typed error.
 - `foom_inspect(method_name)` — look up an exposed method's parameter schema before calling it.
 
-Other than these 4 tools and a few extra lines added to its system prompt, an agent spawned by a coordination script is no different from one spawned by a CLI, because it uses the same default configuration.
+Other than these 4 tools and a few extra lines added to its system prompt, an agent spawned by a coordination script is no different from one spawned by a CLI, because it uses the same default configuration of the harness.
 
 ## Configuration
 
@@ -130,8 +147,8 @@ Set config with `@foom.config({ ... })` on a class or method, with `.with({ ... 
 | `harness` | Which registered harness runs the turn. Required somewhere in the cascade. |
 | `thinking` | Reasoning effort: `"low"` / `"medium"` / `"high"`, or a provider-specific raw string. |
 | `tools` | Harness tools the model may use (tri-state: `undefined` = all, `[]` = none, list = only those). FOOM tools are always available. |
-| `skills` | Skills the harness advertises (tri-state). pi only. |
-| `plugins` | Plugins/extensions the harness loads (tri-state). pi only. |
+| `skills`  | Which of the harness's installed agent skills to offer the model this scope (same tri-state as `tools`, by skill name). |
+| `plugins` | Which of the harness's extensions to load this scope (same tri-state, by source name). |
 | `retries` | Retries on a *retryable* harness error. |
 | `repairAttempts` | Validation failures tolerated before giving up (default `3`). |
 | `systemPrompt` | This scope's contribution: `{ append }` accumulates, `{ replace }` resets the base. |
@@ -146,26 +163,11 @@ A whole-program wall-clock ceiling is a `static maxProgramDuration` on the progr
 
 A harness is the model-loop adapter a turn runs on. Microfoom ships two:
 
-- **pi** ([`@microfoom/pi-adapter`](packages/pi-adapter)) — runs on the [pi](https://www.npmjs.com/package/@earendil-works/pi-agent-core) agent SDK; resolves model/auth from `~/.pi`, and supports skills, plugins, and session `fork()`.
+- **pi** ([`@microfoom/pi-adapter`](packages/pi-adapter)) — runs on the [pi](https://www.npmjs.com/package/@earendil-works/pi-agent-core) agent SDK; resolves model/auth from `~/.pi`.
 - **claudecli** ([`@microfoom/claudecli-adapter`](packages/claudecli-adapter)) — drives the headless `claude` CLI (`claude -p`) via an in-process MCP server.
 
 Register the harnesses you want under names, then select per scope via `@foom.config({ harness })` / `.with({ harness })`:
 
-```ts
-import { runProgram } from "@microfoom/core";
-import { createPiOpenSession } from "@microfoom/pi-adapter";
-import { createClaudeCliOpenSession } from "@microfoom/claudecli-adapter";
-
-const report = await runProgram(MyProgram, { topic: "tides" }, {
-  harnesses: {
-    pi: createPiOpenSession(),
-    claudecli: createClaudeCliOpenSession(),
-  },
-  defaultHarness: "pi",
-  model: "openrouter/deepseek/deepseek-v4-flash",
-  sourceFile: "./my-program.ts", // required for foom_call parameter derivation
-});
-```
 
 ## Run it
 
@@ -190,7 +192,23 @@ microfoom run ./researcher.ts --tui
 
 </div>
 
-You can also run programs programmatically — see [examples/run.ts](examples/run.ts) and the other [examples](examples).
+You can also run it programmatically.
+
+```ts
+import { runProgram } from "@microfoom/core";
+import { createPiOpenSession } from "@microfoom/pi-adapter";
+import { createClaudeCliOpenSession } from "@microfoom/claudecli-adapter";
+
+const report = await runProgram(MyProgram, { topic: "tides" }, {
+  harnesses: {
+    pi: createPiOpenSession(),
+    claudecli: createClaudeCliOpenSession(),
+  },
+  defaultHarness: "pi",
+  model: "openrouter/deepseek/deepseek-v4-flash",
+  sourceFile: "./my-program.ts", // required for foom_call parameter derivation
+});
+```
 
 ## License
 
