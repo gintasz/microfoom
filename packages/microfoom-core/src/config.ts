@@ -131,7 +131,7 @@ function minCap(wider: number, narrower: number): number {
 
 /** narrower wins when present; otherwise inherit the wider value. */
 function override<T>(wider: T | undefined, narrower: T | undefined): T | undefined {
-  return narrower !== undefined ? narrower : wider;
+  return narrower ?? wider;
 }
 
 /** Tightening cap merge: defined-and-tighter wins; undefined inherits. */

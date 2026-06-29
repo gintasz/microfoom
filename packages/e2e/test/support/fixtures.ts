@@ -31,7 +31,7 @@ import {
 import type { RunContext } from "./adapters.ts";
 import { callTool, type ScriptStep, sayText, stall } from "./script.ts";
 
-export type Tier = "scripted" | "live";
+type Tier = "scripted" | "live";
 
 export interface Fixture {
   readonly name: string;

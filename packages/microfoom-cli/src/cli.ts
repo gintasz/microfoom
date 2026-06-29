@@ -16,6 +16,7 @@ import { parseArgs } from "node:util";
 import { type OpenSession, runProgram } from "@microfoom/core";
 import { type AgentEvent, buildRunTree } from "@microfoom/core/trace";
 import { createPiOpenSession } from "@microfoom/pi-adapter";
+import { modelFromEnv } from "./env.js";
 import { fakeOpenSession } from "./fake.js";
 import { fmtSummary } from "./format.js";
 import { loadProgram } from "./loader.js";
@@ -92,13 +93,18 @@ function parseList(raw: string | undefined): readonly string[] | undefined {
 
 /** Build the run-level config defaults from CLI flags (only set fields present).
  *  These become the run's widest config scope, so skills/plugins reach the harness
- *  at session-open (and a program's @foom.config can still override). */
+ *  at session-open (and a program's `@foom.config` can still override). */
 function cliDefaults(
   thinking: string | undefined,
   tools: readonly string[] | undefined,
   skills: readonly string[] | undefined,
   plugins: readonly string[] | undefined,
-) {
+): {
+  thinking?: string;
+  tools?: readonly string[];
+  skills?: readonly string[];
+  plugins?: readonly string[];
+} {
   return {
     ...(thinking !== undefined ? { thinking } : {}),
     ...(tools !== undefined ? { tools } : {}),
@@ -132,6 +138,7 @@ interface TuiArgs {
 }
 
 /** Spawn one bun TUI process; resolve with its exit code (or 1 if bun is missing). */
+// eslint-disable-next-line @typescript-eslint/promise-function-async -- wraps child-process spawn events in `new Promise`; it resolves from an event handler, not an await.
 function spawnTui(entry: string, argv: readonly string[]): Promise<number> {
   return new Promise<number>((resolveCode) => {
     const child = spawn("bun", [entry, ...argv], { stdio: "inherit" });
@@ -220,28 +227,34 @@ async function executeProgram(
   }
 }
 
+const CLI_PARSE_CONFIG = {
+  allowPositionals: true,
+  options: {
+    harness: { type: "string" },
+    model: { type: "string" },
+    thinking: { type: "string" },
+    tools: { type: "string" },
+    skills: { type: "string" },
+    plugins: { type: "string" },
+    input: { type: "string" },
+    tui: { type: "boolean", default: false },
+    "omit-harness-prompt": { type: "boolean", default: false },
+    "system-prompt": { type: "boolean", default: false },
+    "full-user-msg": { type: "boolean", default: false },
+    panel: { type: "boolean", default: false },
+    headless: { type: "boolean", default: false },
+    json: { type: "boolean", default: false },
+    quiet: { type: "boolean", default: false },
+    help: { type: "boolean", short: "h", default: false },
+  },
+} as const;
+
+function parseCliArgs(): ReturnType<typeof parseArgs<typeof CLI_PARSE_CONFIG>> {
+  return parseArgs(CLI_PARSE_CONFIG);
+}
+
 async function run(): Promise<number> {
-  const { values, positionals } = parseArgs({
-    allowPositionals: true,
-    options: {
-      harness: { type: "string" },
-      model: { type: "string" },
-      thinking: { type: "string" },
-      tools: { type: "string" },
-      skills: { type: "string" },
-      plugins: { type: "string" },
-      input: { type: "string" },
-      tui: { type: "boolean", default: false },
-      "omit-harness-prompt": { type: "boolean", default: false },
-      "system-prompt": { type: "boolean", default: false },
-      "full-user-msg": { type: "boolean", default: false },
-      panel: { type: "boolean", default: false },
-      headless: { type: "boolean", default: false },
-      json: { type: "boolean", default: false },
-      quiet: { type: "boolean", default: false },
-      help: { type: "boolean", short: "h", default: false },
-    },
-  });
+  const { values, positionals } = parseCliArgs();
 
   if (values.help) {
     process.stdout.write(HELP);
@@ -260,8 +273,7 @@ async function run(): Promise<number> {
   // `Program(z.void())` validates. An explicit (even empty) value is parsed as given.
   const rawInput = values.input ?? args[1];
   const input = rawInput === undefined ? undefined : parseInput(rawInput);
-  const model =
-    values.model ?? process.env.MICROFOOM_MODEL ?? "openrouter/deepseek/deepseek-v4-flash";
+  const model = values.model ?? modelFromEnv() ?? "openrouter/deepseek/deepseek-v4-flash";
 
   // The interactive TUI is a separate runtime (OpenTUI needs bun's FFI): re-exec
   // the bun entry, which runs the program in-process and renders. We just wait.
@@ -282,7 +294,7 @@ async function run(): Promise<number> {
   }
 
   // Panel on an interactive stderr unless headless; auto-off when piped.
-  const interactive = process.stderr.isTTY === true;
+  const interactive = process.stderr.isTTY;
   const usePanel = values.panel || (!values.headless && interactive);
 
   const ProgramClass = await loadProgram(sourceFile);

@@ -21,7 +21,7 @@ const asString = (value: unknown): string | undefined =>
   typeof value === "string" ? value : undefined;
 
 /** Why a turn ended badly (mapped to a FoomtimeHarnessError by the caller). */
-export interface TurnError {
+interface TurnError {
   readonly message: string;
   /** Whether retrying could plausibly succeed (transient model/network/rate-limit). */
   readonly retryable: boolean;
@@ -48,10 +48,10 @@ const EMPTY_USAGE: UsageDelta = { inputTokens: 0, outputTokens: 0, totalTokens: 
 /** Map a stream-json `usage` block (+ optional cost) to a microfoom UsageDelta. */
 export function usageFromResult(usageBlock: unknown, costUsd: number | undefined): UsageDelta {
   const usage = asObject(usageBlock) ?? {};
-  const input = asNumber(usage.input_tokens);
-  const output = asNumber(usage.output_tokens);
-  const cacheRead = asNumber(usage.cache_read_input_tokens);
-  const cacheCreation = asNumber(usage.cache_creation_input_tokens);
+  const input = asNumber(usage["input_tokens"]);
+  const output = asNumber(usage["output_tokens"]);
+  const cacheRead = asNumber(usage["cache_read_input_tokens"]);
+  const cacheCreation = asNumber(usage["cache_creation_input_tokens"]);
   return {
     inputTokens: input,
     outputTokens: output,
@@ -65,110 +65,132 @@ export function usageFromResult(usageBlock: unknown, costUsd: number | undefined
  * Build a reader that interprets one turn's stream. `onEvent` (when supplied)
  * receives the live transcript: assistant prose, tool calls, and tool results.
  */
+/** Mutable accumulator a turn's events fold into. */
+interface ReaderState {
+  sessionId: string | undefined;
+  resultSeen: boolean;
+  error: TurnError | undefined;
+  finalText: string;
+  lastAssistantText: string;
+  usage: UsageDelta;
+}
+
+type Emit = (event: StreamEvent) => void;
+
+// Emit one assistant message's content blocks (text deltas + tool calls) and
+// return the concatenated prose text.
+function emitAssistantContent(content: unknown, emit: Emit, serverName: string): string {
+  let text = "";
+  for (const raw of asArray(content)) {
+    const block = asObject(raw);
+    if (block === undefined) continue;
+    if (block["type"] === "text") {
+      const delta = asString(block["text"]) ?? "";
+      text += delta;
+      emit({ type: "text", delta });
+    } else if (block["type"] === "tool_use") {
+      emit({
+        type: "tool_call",
+        callId: asString(block["id"]) ?? "",
+        name: stripPrefix(serverName, asString(block["name"]) ?? ""),
+        args: block["input"],
+      });
+    }
+  }
+  return text;
+}
+
+function handleAssistant(
+  message: StreamJson,
+  state: ReaderState,
+  emit: Emit,
+  serverName: string,
+): void {
+  emit({ type: "message_start" });
+  const text = emitAssistantContent(message["content"], emit, serverName);
+  emit({ type: "message_end" });
+  if (text.length > 0) state.lastAssistantText = text;
+}
+
+function handleUser(message: StreamJson, emit: Emit): void {
+  for (const raw of asArray(message["content"])) {
+    const block = asObject(raw);
+    if (block === undefined || block["type"] !== "tool_result") continue;
+    const content = asArray(block["content"])
+      .map((part) => asString(asObject(part)?.["text"]) ?? "")
+      .join("");
+    emit({
+      type: "tool_result",
+      callId: asString(block["tool_use_id"]) ?? "",
+      content,
+      isError: block["is_error"] === true,
+    });
+  }
+}
+
+// A non-"allowed" rate-limit status fails the turn as retryable.
+function handleRateLimit(event: StreamJson, state: ReaderState): void {
+  const status = asString(asObject(event["rate_limit_info"])?.["status"]);
+  if (status !== undefined && status !== "allowed") {
+    state.error = { message: `rate limited: ${status}`, retryable: true };
+  }
+}
+
+// The terminal `result` event: capture usage/cost + final text, and surface a
+// model-side failure (is_error or a non-success subtype) as a retryable error.
+function handleResult(event: StreamJson, state: ReaderState): void {
+  state.resultSeen = true;
+  const cost = typeof event["total_cost_usd"] === "number" ? event["total_cost_usd"] : undefined;
+  state.usage = usageFromResult(event["usage"], cost);
+  state.finalText = asString(event["result"]) ?? "";
+  if (event["is_error"] === true || (asString(event["subtype"]) ?? "success") !== "success") {
+    state.error = {
+      message:
+        state.finalText.length > 0
+          ? state.finalText
+          : (asString(event["subtype"]) ?? "model error"),
+      retryable: true,
+    };
+  }
+}
+
 export function createTurnReader(
   serverName: string,
   onEvent: ((event: StreamEvent) => void) | undefined,
 ): TurnReader {
-  let sessionId: string | undefined;
-  let resultSeen = false;
-  let error: TurnError | undefined;
-  let finalText = "";
-  let lastAssistantText = "";
-  let usage: UsageDelta = EMPTY_USAGE;
+  const state: ReaderState = {
+    sessionId: undefined,
+    resultSeen: false,
+    error: undefined,
+    finalText: "",
+    lastAssistantText: "",
+    usage: EMPTY_USAGE,
+  };
 
-  const emit = (event: StreamEvent): void => {
+  const emit: Emit = (event: StreamEvent): void => {
     if (onEvent !== undefined) onEvent(event);
   };
 
-  // Emit one assistant message's content blocks (text deltas + tool calls) and
-  // return the concatenated prose text.
-  const emitAssistantContent = (content: unknown): string => {
-    let text = "";
-    for (const raw of asArray(content)) {
-      const block = asObject(raw);
-      if (block === undefined) continue;
-      if (block.type === "text") {
-        const delta = asString(block.text) ?? "";
-        text += delta;
-        emit({ type: "text", delta });
-      } else if (block.type === "tool_use") {
-        emit({
-          type: "tool_call",
-          callId: asString(block.id) ?? "",
-          name: stripPrefix(serverName, asString(block.name) ?? ""),
-          args: block.input,
-        });
-      }
-    }
-    return text;
-  };
-
-  const handleAssistant = (message: StreamJson): void => {
-    emit({ type: "message_start" });
-    const text = emitAssistantContent(message.content);
-    emit({ type: "message_end" });
-    if (text.length > 0) lastAssistantText = text;
-  };
-
-  const handleUser = (message: StreamJson): void => {
-    for (const raw of asArray(message.content)) {
-      const block = asObject(raw);
-      if (block === undefined || block.type !== "tool_result") continue;
-      const content = asArray(block.content)
-        .map((part) => asString(asObject(part)?.text) ?? "")
-        .join("");
-      emit({
-        type: "tool_result",
-        callId: asString(block.tool_use_id) ?? "",
-        content,
-        isError: block.is_error === true,
-      });
-    }
-  };
-
-  // A non-"allowed" rate-limit status fails the turn as retryable.
-  const handleRateLimit = (event: StreamJson): void => {
-    const status = asString(asObject(event.rate_limit_info)?.status);
-    if (status !== undefined && status !== "allowed") {
-      error = { message: `rate limited: ${status}`, retryable: true };
-    }
-  };
-
-  // The terminal `result` event: capture usage/cost + final text, and surface a
-  // model-side failure (is_error or a non-success subtype) as a retryable error.
-  const handleResult = (event: StreamJson): void => {
-    resultSeen = true;
-    const cost = typeof event.total_cost_usd === "number" ? event.total_cost_usd : undefined;
-    usage = usageFromResult(event.usage, cost);
-    finalText = asString(event.result) ?? "";
-    if (event.is_error === true || (asString(event.subtype) ?? "success") !== "success") {
-      error = {
-        message: finalText.length > 0 ? finalText : (asString(event.subtype) ?? "model error"),
-        retryable: true,
-      };
-    }
-  };
-
   const handle = (event: StreamJson): void => {
-    const sid = asString(event.session_id);
-    if (sid !== undefined) sessionId = sid;
+    const sid = asString(event["session_id"]);
+    if (sid !== undefined) state.sessionId = sid;
 
-    switch (event.type) {
+    switch (event["type"]) {
       case "assistant": {
-        const message = asObject(event.message);
-        if (message !== undefined) handleAssistant(message);
+        const message = asObject(event["message"]);
+        if (message !== undefined) handleAssistant(message, state, emit, serverName);
         break;
       }
       case "user": {
-        const message = asObject(event.message);
-        if (message !== undefined) handleUser(message);
+        const message = asObject(event["message"]);
+        if (message !== undefined) handleUser(message, emit);
         break;
       }
       case "rate_limit_event":
-        handleRateLimit(event);
+        handleRateLimit(event, state);
         break;
       case "result":
-        handleResult(event);
+        handleResult(event, state);
         break;
       default:
         break;
@@ -177,10 +199,10 @@ export function createTurnReader(
 
   return {
     handle,
-    sessionId: () => sessionId,
-    resultSeen: () => resultSeen,
-    error: () => error,
-    assistantText: () => (finalText.length > 0 ? finalText : lastAssistantText),
-    usage: () => usage,
+    sessionId: () => state.sessionId,
+    resultSeen: () => state.resultSeen,
+    error: () => state.error,
+    assistantText: () => (state.finalText.length > 0 ? state.finalText : state.lastAssistantText),
+    usage: () => state.usage,
   };
 }

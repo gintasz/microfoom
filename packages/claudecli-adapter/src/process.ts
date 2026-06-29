@@ -130,7 +130,8 @@ export function spawnClaude(spec: ClaudeSpec): ClaudeProcess {
       // ToolSearch tool: the model must see the control tools (and their schemas)
       // directly, every turn, to speak the protocol without an extra discovery
       // round-trip. Honour an explicit override from the environment.
-      env: { ...process.env, ENABLE_TOOL_SEARCH: process.env.ENABLE_TOOL_SEARCH ?? "false" },
+      // biome-ignore lint/style/noProcessEnv: the child must inherit the full parent environment (model auth, PATH, …); forwarding raw process.env is the intent, not a config read to route through env.ts.
+      env: { ...process.env, ENABLE_TOOL_SEARCH: process.env["ENABLE_TOOL_SEARCH"] ?? "false" },
       ...(spec.signal !== undefined ? { signal: spec.signal } : {}),
     });
   } catch (error) {

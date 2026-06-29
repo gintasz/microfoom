@@ -13,7 +13,7 @@ import type { AgentOptions, AgentToolOptions } from "./options.js";
 /** Advertisement tier of an exposed method (F3). */
 export type ExposureTier = "silent" | "announcement" | "tool";
 
-/** What @foom.expose recorded for one method. */
+/** What `@foom.expose` recorded for one method. */
 export interface ExposeMeta {
   readonly dispatchName: string;
   readonly tier: ExposureTier;

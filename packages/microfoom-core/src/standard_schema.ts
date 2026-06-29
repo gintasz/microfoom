@@ -33,7 +33,7 @@ export function standardInputJsonSchema(schema: StandardSchemaV1): JsonSchema | 
   if (converter?.input === undefined) return undefined;
   try {
     const json: Record<string, unknown> = { ...converter.input({ target: "draft-2020-12" }) };
-    delete json.$schema;
+    delete json["$schema"];
     return json;
   } catch {
     return undefined;

@@ -6,14 +6,14 @@
 
 import type { AgentEvent } from "@microfoom/core/trace";
 
-export interface RunMeta {
+interface RunMeta {
   readonly file: string;
   readonly model: string;
   readonly harness: string;
   readonly input: string;
 }
 
-export interface TuiSnapshot {
+interface TuiSnapshot {
   readonly meta: RunMeta | undefined;
   readonly events: readonly AgentEvent[];
   readonly status: "running" | "done" | "error";
@@ -51,7 +51,7 @@ export function createStore(): TuiStore {
   };
   // Coalesce bursts of stream deltas into one render tick.
   const schedule = (): void => {
-    if (timer === undefined) timer = setTimeout(flush, COALESCE_MS);
+    timer ??= setTimeout(flush, COALESCE_MS);
   };
   const flush = (): void => {
     timer = undefined;
@@ -59,22 +59,22 @@ export function createStore(): TuiStore {
   };
 
   return {
-    subscribe(listener) {
+    subscribe(listener: () => void): () => void {
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
-    getSnapshot() {
+    getSnapshot(): TuiSnapshot {
       return snapshot;
     },
-    push(event) {
+    push(event: AgentEvent): void {
       events.push(event);
       schedule();
     },
-    setMeta(next) {
+    setMeta(next: RunMeta): void {
       meta = next;
       rebuild();
     },
-    done(nextResult, nextError) {
+    done(nextResult: string | undefined, nextError: string | undefined): void {
       status = nextError !== undefined ? "error" : "done";
       result = nextResult;
       error = nextError;

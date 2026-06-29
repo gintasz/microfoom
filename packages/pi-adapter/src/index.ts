@@ -43,6 +43,7 @@ import {
   FoomtimeHarnessRejectedError,
   FoomtimeHarnessUnavailableError,
   type HarnessSession,
+  type HarnessSessionOptions,
   type NeutralToolDef,
   type OpenSession,
   type SessionTurnRequest,
@@ -51,6 +52,7 @@ import {
   type UsageDelta,
 } from "@microfoom/core";
 import { Type } from "typebox";
+import { dumpPayloadFile, logFileFromEnv } from "./env.js";
 
 export const PI_HARNESS_VERSION = "0.1.0";
 
@@ -229,7 +231,7 @@ function selectTurnTools(runtime: PiRuntime, request: SessionTurnRequest): Agent
  *  request body to the file as JSONL. Returns the Agent option fragment (empty
  *  when unset) — the ground truth of what the model receives. */
 function payloadDumpOptions(): { onPayload?: (payload: unknown) => undefined } {
-  const dumpFile = process.env.MICROFOOM_DUMP_PAYLOAD;
+  const dumpFile = dumpPayloadFile();
   if (dumpFile === undefined) return {};
   return {
     onPayload: (payload: unknown) => {
@@ -342,18 +344,23 @@ async function buildResourceLoader(
     ...(allowedSkills !== undefined && allowedSkills.length === 0 ? { noSkills: true } : {}),
     ...(allowedSkills !== undefined && allowedSkills.length > 0
       ? {
-          skillsOverride: (base: { skills: Skill[]; diagnostics: ResourceDiagnostic[] }) => ({
+          skillsOverride: (base: {
+            skills: Skill[];
+            diagnostics: ResourceDiagnostic[];
+          }): { skills: Skill[]; diagnostics: ResourceDiagnostic[] } => ({
             ...base,
-            skills: base.skills.filter((skill) => allowedSkills.includes(skill.name)),
+            skills: base.skills.filter((skill): boolean => allowedSkills.includes(skill.name)),
           }),
         }
       : {}),
     ...(allowedPlugins !== undefined && allowedPlugins.length === 0 ? { noExtensions: true } : {}),
     ...(allowedPlugins !== undefined && allowedPlugins.length > 0
       ? {
-          extensionsOverride: (base: LoadExtensionsResult) => ({
+          extensionsOverride: (base: LoadExtensionsResult): LoadExtensionsResult => ({
             ...base,
-            extensions: base.extensions.filter((ext) => allowedPlugins.includes(pluginName(ext))),
+            extensions: base.extensions.filter((ext): boolean =>
+              allowedPlugins.includes(pluginName(ext)),
+            ),
           }),
         }
       : {}),
@@ -372,6 +379,101 @@ function runtimeKey(
   const ser = (v: readonly string[] | undefined): string =>
     v === undefined ? "*" : v.length === 0 ? "-" : [...v].sort().join(",");
   return `${ser(allowedSkills)}|${ser(allowedPlugins)}`;
+}
+
+/** Default `id → Model` lookup: split "provider/name" and ask the registry. */
+function defaultResolveModel(registry: PiRuntime["registry"], id: string): Model<Api> | undefined {
+  const slash = id.indexOf("/");
+  const provider = slash >= 0 ? id.slice(0, slash) : id;
+  const name = slash >= 0 ? id.slice(slash + 1) : id;
+  return registry?.find(provider, name);
+}
+
+/** What one pi-backed harness session needs from its creating OpenSession. */
+interface SessionDeps {
+  readonly runtime: PiRuntime;
+  readonly model: Model<Api>;
+  readonly logFile: string | undefined;
+}
+
+/** One Agent per session: reusing it across runTurn calls preserves the pi
+ *  transcript, so a microfoom session() is a continued conversation. Stateless
+ *  this.agent turns open a fresh session (fresh Agent) each time. A session
+ *  seeded with prior messages is a fork() branch. Base-prompt omission is applied
+ *  per turn (request.omitBasePrompt), defaulting to runtime.omitBaseDefault. */
+function makePiHarnessSession(deps: SessionDeps, seed?: readonly AgentMessage[]): HarnessSession {
+  const { runtime, model, logFile } = deps;
+  let agent: Agent | undefined;
+
+  // Create the per-session Agent on first turn (seeding a fork's transcript), or
+  // re-point the existing one at this turn's prompt/thinking/tools. Reusing it
+  // preserves the pi transcript so a session() is one continued conversation.
+  const ensureAgent = (
+    systemPrompt: string,
+    thinkingLevel: ThinkingLevel,
+    tools: AgentTool[],
+  ): Agent => {
+    if (agent === undefined) {
+      agent = new Agent({
+        initialState: { systemPrompt, model, thinkingLevel, tools },
+        streamFn: runtime.streamFn,
+        convertToLlm: (messages: AgentMessage[]): Message[] =>
+          messages.filter(
+            (message): message is Message =>
+              message.role === "user" ||
+              message.role === "assistant" ||
+              message.role === "toolResult",
+          ),
+        ...payloadDumpOptions(),
+      });
+      // Branch seed: continue from a copy of the parent transcript (fork()).
+      if (seed !== undefined) agent.state.messages = [...seed];
+      return agent;
+    }
+    agent.state.systemPrompt = systemPrompt;
+    agent.state.thinkingLevel = thinkingLevel;
+    agent.state.tools = tools;
+    return agent;
+  };
+
+  return {
+    // The model receives pi's base prompt with the program prompt appended.
+    systemPrompt(programPrompt: string): string {
+      return composeSystemPrompt(
+        runtime.omitBaseDefault ? undefined : runtime.basePrompt,
+        programPrompt,
+      );
+    },
+    async runTurn(request: SessionTurnRequest): Promise<SessionTurnResult> {
+      const thinkingLevel = resolveThinking(request.thinking);
+      const tools = selectTurnTools(runtime, request);
+      // Drop pi's base prompt for this turn when the scope asked to (or the
+      // construction default does); core threads it as request.omitBasePrompt.
+      const omitBase = request.omitBasePrompt ?? runtime.omitBaseDefault;
+      const systemPrompt = composeSystemPrompt(
+        omitBase ? undefined : runtime.basePrompt,
+        request.systemPrompt,
+      );
+      const activeAgent = ensureAgent(systemPrompt, thinkingLevel, tools);
+
+      const unsubscribe = subscribeStream(activeAgent, request.onEvent);
+      const before = activeAgent.state.messages.length;
+      try {
+        await activeAgent.prompt(request.prompt);
+      } finally {
+        unsubscribe?.();
+      }
+      const newMessages = activeAgent.state.messages.slice(before);
+      logTurn(logFile, model.id, request, newMessages, tools);
+      return collectTurnResult(newMessages);
+    },
+    // Branch: a new pi session seeded with a COPY of the transcript so far (or
+    // the inherited seed when no turn has run yet), diverging independently.
+    fork(): HarnessSession {
+      const transcript = agent !== undefined ? agent.state.messages : (seed ?? []);
+      return makePiHarnessSession(deps, [...transcript]);
+    },
+  };
 }
 
 /**
@@ -393,7 +495,7 @@ function runtimeKey(
  * ```
  */
 export function createPiOpenSession(options: PiSessionOptions = {}): OpenSession {
-  const logFile = options.logFile ?? process.env.MICROFOOM_LOG;
+  const logFile = options.logFile ?? logFileFromEnv();
 
   // Store pi's REAL base prompt; omission is applied per turn (so a scope can flip it
   // — see request.omitBasePrompt), defaulting to this construction option. An explicit
@@ -402,7 +504,9 @@ export function createPiOpenSession(options: PiSessionOptions = {}): OpenSession
   const omitBaseDefault = options.omitHarnessBasePrompt === true;
   const resolveBase = (piBase: string | undefined): string | undefined =>
     options.basePrompt ?? piBase;
-  const resolveTools = (piTools: readonly AgentTool[] | undefined) => options.tools ?? piTools;
+  const resolveTools = (
+    piTools: readonly AgentTool[] | undefined,
+  ): readonly AgentTool[] | undefined => options.tools ?? piTools;
 
   // skills/plugins arrive PER session-open (resolved from the scope's merged config —
   // see core's openOptions), so the resolved runtime is memoized per set, not once.
@@ -455,6 +559,7 @@ export function createPiOpenSession(options: PiSessionOptions = {}): OpenSession
   const initFor = (
     allowedSkills: readonly string[] | undefined,
     allowedPlugins: readonly string[] | undefined,
+    // eslint-disable-next-line @typescript-eslint/promise-function-async -- returns the cached runtime promise by identity (single-flight); `async` would allocate a fresh wrapper each call.
   ): Promise<PiRuntime> => {
     const key = runtimeKey(allowedSkills, allowedPlugins);
     let pending = runtimeCache.get(key);
@@ -465,98 +570,19 @@ export function createPiOpenSession(options: PiSessionOptions = {}): OpenSession
     return pending;
   };
 
-  return async ({ model: modelId, skills, plugins }) => {
+  return async ({
+    model: modelId,
+    skills,
+    plugins,
+  }: HarnessSessionOptions): Promise<HarnessSession> => {
     const runtime = await initFor(skills, plugins);
     const resolveModel =
-      options.resolveModel ??
-      ((id: string): Model<Api> | undefined => {
-        const slash = id.indexOf("/");
-        const provider = slash >= 0 ? id.slice(0, slash) : id;
-        const name = slash >= 0 ? id.slice(slash + 1) : id;
-        return runtime.registry?.find(provider, name);
-      });
+      options.resolveModel ?? ((id: string) => defaultResolveModel(runtime.registry, id));
     const model: Model<Api> | undefined = resolveModel(modelId);
     if (model === undefined) {
       throw new FoomtimeHarnessRejectedError(`unknown model: ${modelId}`);
     }
 
-    // One Agent per session: reusing it across runTurn calls preserves the pi
-    // transcript, so a microfoom session() is a continued conversation. Stateless
-    // this.agent turns open a fresh session (fresh Agent) each time. A session
-    // seeded with prior messages is a fork() branch (see below).
-    const makeHarnessSession = (seed?: readonly AgentMessage[]): HarnessSession => {
-      let agent: Agent | undefined;
-
-      // Create the per-session Agent on first turn (seeding a fork's transcript), or
-      // re-point the existing one at this turn's prompt/thinking/tools. Reusing it
-      // preserves the pi transcript so a session() is one continued conversation.
-      const ensureAgent = (
-        systemPrompt: string,
-        thinkingLevel: ThinkingLevel,
-        tools: AgentTool[],
-      ): Agent => {
-        if (agent === undefined) {
-          agent = new Agent({
-            initialState: { systemPrompt, model, thinkingLevel, tools },
-            streamFn: runtime.streamFn,
-            convertToLlm: (messages: AgentMessage[]) =>
-              messages.filter(
-                (message): message is Message =>
-                  message.role === "user" ||
-                  message.role === "assistant" ||
-                  message.role === "toolResult",
-              ),
-            ...payloadDumpOptions(),
-          });
-          // Branch seed: continue from a copy of the parent transcript (fork()).
-          if (seed !== undefined) agent.state.messages = [...seed];
-          return agent;
-        }
-        agent.state.systemPrompt = systemPrompt;
-        agent.state.thinkingLevel = thinkingLevel;
-        agent.state.tools = tools;
-        return agent;
-      };
-
-      return {
-        // The model receives pi's base prompt with the program prompt appended.
-        systemPrompt(programPrompt: string): string {
-          return composeSystemPrompt(
-            runtime.omitBaseDefault ? undefined : runtime.basePrompt,
-            programPrompt,
-          );
-        },
-        async runTurn(request: SessionTurnRequest): Promise<SessionTurnResult> {
-          const thinkingLevel = resolveThinking(request.thinking);
-          const tools = selectTurnTools(runtime, request);
-          // Drop pi's base prompt for this turn when the scope asked to (or the
-          // construction default does); core threads it as request.omitBasePrompt.
-          const omitBase = request.omitBasePrompt ?? runtime.omitBaseDefault;
-          const systemPrompt = composeSystemPrompt(
-            omitBase ? undefined : runtime.basePrompt,
-            request.systemPrompt,
-          );
-          const activeAgent = ensureAgent(systemPrompt, thinkingLevel, tools);
-
-          const unsubscribe = subscribeStream(activeAgent, request.onEvent);
-          const before = activeAgent.state.messages.length;
-          try {
-            await activeAgent.prompt(request.prompt);
-          } finally {
-            unsubscribe?.();
-          }
-          const newMessages = activeAgent.state.messages.slice(before);
-          logTurn(logFile, model.id, request, newMessages, tools);
-          return collectTurnResult(newMessages);
-        },
-        // Branch: a new pi session seeded with a COPY of the transcript so far (or
-        // the inherited seed when no turn has run yet), diverging independently.
-        fork(): HarnessSession {
-          const transcript = agent !== undefined ? agent.state.messages : (seed ?? []);
-          return makeHarnessSession([...transcript]);
-        },
-      };
-    };
-    return makeHarnessSession();
+    return makePiHarnessSession({ runtime, model, logFile });
   };
 }

@@ -25,7 +25,7 @@ export interface NeutralToolDef {
   readonly name: string;
   readonly description: string;
   readonly parameters: JsonSchema;
-  /** Optional usage blurb (from @foom.expose({ tool }) or a control tool). A
+  /** Optional usage blurb (from `@foom.expose({ tool })` or a control tool). A
    *  harness with a native slot uses it; one without (raw pi-agent-core) folds it
    *  into the model-visible description. `| undefined` so a sparse keyed map reads
    *  inline. */

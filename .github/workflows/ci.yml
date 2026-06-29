@@ -19,6 +19,7 @@ jobs:
       - run: pnpm run typecheck
       - run: pnpm run format:check
       - run: pnpm run lint
+      - run: pnpm run lint:types
       - run: pnpm run build
       - run: pnpm run arch
       - run: pnpm run ast
@@ -26,6 +27,6 @@ jobs:
       - run: pnpm run deps:check
       - run: pnpm run dead
       - run: pnpm run dup
-      - run: pnpm run test
+      - run: pnpm run coverage
       # e2e (real-LLM) runs separately; it skips, not fails, on provider/auth
       # errors (Q2) and needs model credentials, so it is not a merge gate here.

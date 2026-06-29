@@ -29,6 +29,7 @@ import {
   type RunTurnParams,
   runProgramTurn,
   type TurnMode,
+  type TurnOutcome,
 } from "./tools.js";
 import {
   type AgentUsage,
@@ -125,7 +126,7 @@ export interface AgentScope extends AgentRun {
 }
 
 /** The trace members added to the context (gated behind the trace entry). */
-export interface TraceContext {
+interface TraceContext {
   scope(name: string): AgentScope;
   onEvent(handler: (event: AgentEvent) => void): void;
   export(exporter: AgentTraceExporter): void;
@@ -142,8 +143,8 @@ export function attachContext<P extends object>(program: P, context: AgentProgra
 
 /** The program base class. Extend via Program(schema) for a typed input. */
 export abstract class FoomtimeProgram<I = string[], R = unknown> {
-  static input?: StandardSchemaV1;
-  static maxProgramDuration?: string;
+  public static input?: StandardSchemaV1;
+  public static maxProgramDuration?: string;
 
   protected get agent(): AgentProgramContext<this> {
     const context = contexts.get(this);
@@ -155,7 +156,7 @@ export abstract class FoomtimeProgram<I = string[], R = unknown> {
     return context as AgentProgramContext<this>;
   }
 
-  abstract main(input: I): Promise<R>;
+  public abstract main(input: I): Promise<R>;
 }
 
 /**
@@ -182,7 +183,7 @@ export function Program<S extends StandardSchemaV1, R = unknown>(
   input: S,
 ): abstract new () => FoomtimeProgram<StandardSchemaV1.InferOutput<S>, R> {
   abstract class BoundProgram extends FoomtimeProgram<StandardSchemaV1.InferOutput<S>, R> {
-    static override input = input;
+    public static override input = input;
   }
   return BoundProgram;
 }
@@ -293,6 +294,7 @@ function emitAll(runtime: Runtime, event: AgentEvent): void {
  * Non-turn spans carry empty usage; the tree projection rolls usage up from the
  * turn leaves (the real harness deltas).
  */
+// eslint-disable-next-line @typescript-eslint/promise-function-async -- deliberately non-async: the no-listener fast path returns fn() untouched, with no extra microtask on the hot path.
 function withSpan<T>(
   runtime: Runtime,
   name: string,
@@ -359,17 +361,17 @@ function buildContext(runtime: Runtime): ProgramTurnContext {
       });
   }
   return {
-    isExposed: (method) => runtime.exposed.has(method),
-    paramSchema: (method) => deriveFor(runtime, method)?.jsonSchema,
+    isExposed: (method: string): boolean => runtime.exposed.has(method),
+    paramSchema: (method: string) => deriveFor(runtime, method)?.jsonSchema,
     toolTierMethods: toolTier,
-    depth: () => runtime.depth,
-    validateArgs: async (method, args) => {
+    depth: (): number => runtime.depth,
+    validateArgs: async (method: string, args: unknown) => {
       const derived = deriveFor(runtime, method);
       if (derived === undefined) return undefined;
       const result = await Promise.resolve(derived.schema["~standard"].validate(args));
-      return result.issues === undefined ? undefined : result.issues;
+      return result.issues;
     },
-    invoke: async (method, args) => {
+    invoke: async (method: string, args: unknown) => {
       const derived = deriveFor(runtime, method);
       const record = (typeof args === "object" && args !== null ? args : {}) as Record<
         string,
@@ -387,6 +389,7 @@ function buildContext(runtime: Runtime): ProgramTurnContext {
       runtime.depth = previousDepth + 1;
       runtime.methodConfig = methodConfigOf(runtime, method);
       try {
+        // eslint-disable-next-line @typescript-eslint/promise-function-async -- Promise.resolve normalizes a possibly-synchronous method result; the exposed method may be sync or async.
         const result = await withSpan(runtime, method, "method", () =>
           Promise.resolve(fn.apply(runtime.instance, positional)),
         );
@@ -561,88 +564,99 @@ function buildRunTurnParams(args: {
 // `parentSpan` pins this channel's turns under a specific span (a scope's own
 // span). When absent, the parent is taken from the call-structure (AsyncLocalStorage)
 // — the right default for `this.agent` turns inside main or a method.
+/** Everything a single turn needs from its owning run. */
+interface DriveDeps {
+  readonly runtime: Runtime;
+  readonly options: AgentOptions;
+  readonly source: SessionSource;
+  readonly parentSpan: string | undefined;
+}
+
+/** Run one turn: open the session, emit the span, fold usage, settle the guard. */
+async function driveTurn(
+  deps: DriveDeps,
+  mode: TurnMode,
+  prompt: string,
+  signal: AbortSignal,
+  onStreamChunk?: (chunk: string) => void,
+): Promise<TurnOutcome> {
+  const { runtime, options, source, parentSpan } = deps;
+  const prepared = prepare(runtime, options);
+  const span = runtime.nextSpan();
+  const traced = runtime.listeners.size > 0;
+  // A turn is a span leaf: its usage is the real harness delta(s) folded here.
+  let turnDelta = emptyUsage;
+  if (traced) emitTurnStart(runtime, span, mode, options, parentSpan);
+  const turnPrompt = buildTurnPrompt(mode, prompt);
+  const startedAt = Date.now();
+  try {
+    const session = await source.get();
+    // The exact system prompt the model saw this turn, sourced from the session
+    // (so a harness that prepends its own base prompt shows the composed whole).
+    if (traced) {
+      emitAll(runtime, {
+        type: "turn_meta",
+        span,
+        systemPrompt: session.systemPrompt?.(prepared.systemPrompt) ?? prepared.systemPrompt,
+      });
+    }
+    const fold = (delta: UsageAccount): UsageAccount => {
+      if (traced) turnDelta = combineUsage(turnDelta, delta);
+      runtime.usage = combineUsage(runtime.usage, delta);
+      return runtime.usage;
+    };
+    // Run the turn body under this span so a method the agent foom_calls
+    // mid-turn (and its own turns) nest beneath it.
+    return await runtime.spanALS.run(span, async () =>
+      runProgramTurn(
+        buildRunTurnParams({
+          session,
+          prepared,
+          turnPrompt,
+          mode,
+          runtime,
+          span,
+          traced,
+          options,
+          onStreamChunk,
+          signal,
+          fold,
+        }),
+      ),
+    );
+  } catch (error) {
+    if (signal.aborted) throw new FoomtimeCancelledError("the agent run was aborted");
+    throw error;
+  } finally {
+    if (traced) emitTurnEnd(runtime, span, startedAt, turnDelta);
+    if (source.guard !== undefined) source.guard.inFlight = false;
+  }
+}
+
 function makeRun(
   runtime: Runtime,
   options: AgentOptions,
   source: SessionSource,
   parentSpan?: string,
 ): AgentRun {
-  const begin = () => {
+  const deps: DriveDeps = { runtime, options, source, parentSpan };
+  // Reject overlapping turns on a stateful session before the turn starts;
+  // driveTurn clears the in-flight flag when it settles.
+  const begin = (): void => {
     if (source.guard !== undefined) {
       if (source.guard.inFlight)
         throw new FoomtimeConcurrencyError("overlapping turns on one session");
       source.guard.inFlight = true;
     }
   };
-  const end = () => {
-    if (source.guard !== undefined) source.guard.inFlight = false;
-  };
 
-  const drive = async (
-    mode: TurnMode,
-    prompt: string,
-    signal: AbortSignal,
-    onStreamChunk?: (chunk: string) => void,
-  ) => {
-    const prepared = prepare(runtime, options);
-    const span = runtime.nextSpan();
-    const traced = runtime.listeners.size > 0;
-    // A turn is a span leaf: its usage is the real harness delta(s) folded here.
-    let turnDelta = emptyUsage;
-    if (traced) emitTurnStart(runtime, span, mode, options, parentSpan);
-    const turnPrompt = buildTurnPrompt(mode, prompt);
-    const startedAt = Date.now();
-    try {
-      const session = await source.get();
-      // The exact system prompt the model saw this turn, sourced from the session
-      // (so a harness that prepends its own base prompt shows the composed whole).
-      if (traced) {
-        emitAll(runtime, {
-          type: "turn_meta",
-          span,
-          systemPrompt: session.systemPrompt?.(prepared.systemPrompt) ?? prepared.systemPrompt,
-        });
-      }
-      const fold = (delta: UsageAccount): UsageAccount => {
-        if (traced) turnDelta = combineUsage(turnDelta, delta);
-        runtime.usage = combineUsage(runtime.usage, delta);
-        return runtime.usage;
-      };
-      // Run the turn body under this span so a method the agent foom_calls
-      // mid-turn (and its own turns) nest beneath it.
-      return await runtime.spanALS.run(span, () =>
-        runProgramTurn(
-          buildRunTurnParams({
-            session,
-            prepared,
-            turnPrompt,
-            mode,
-            runtime,
-            span,
-            traced,
-            options,
-            onStreamChunk,
-            signal,
-            fold,
-          }),
-        ),
-      );
-    } catch (error) {
-      if (signal.aborted) throw new FoomtimeCancelledError("the agent run was aborted");
-      throw error;
-    } finally {
-      if (traced) emitTurnEnd(runtime, span, startedAt, turnDelta);
-      end();
-    }
-  };
-
-  const prose: AgentProseTemplate = (strings, ...values) => {
+  const prose: AgentProseTemplate = (strings: TemplateStringsArray, ...values: unknown[]) => {
     begin();
     const prompt = render(strings, values);
     const { stream, sink } = makeTextStream({
-      run: async (signal) => {
+      run: async (signal: AbortSignal) => {
         try {
-          const outcome = await drive({ kind: "text" }, prompt, signal, (chunk) =>
+          const outcome = await driveTurn(deps, { kind: "text" }, prompt, signal, (chunk) =>
             sink.push(chunk),
           );
           sink.end();
@@ -657,28 +671,31 @@ function makeRun(
     return stream;
   };
 
-  const act: AgentDoTemplate = (strings, ...values) => {
+  const act: AgentDoTemplate = (strings: TemplateStringsArray, ...values: unknown[]) => {
     begin();
     const prompt = render(strings, values);
     return makeResult<void>({
-      run: async (signal) => {
-        await drive({ kind: "do" }, prompt, signal);
+      run: async (signal: AbortSignal) => {
+        await driveTurn(deps, { kind: "do" }, prompt, signal);
       },
       usage: () => readUsage(runtime),
     });
   };
 
   const value: AgentValueTemplate =
-    (schema) =>
-    (strings, ...values) => {
+    <S extends StandardSchemaV1>(schema: S) =>
+    (
+      strings: TemplateStringsArray,
+      ...values: unknown[]
+    ): AgentResult<StandardSchemaV1.InferOutput<S>> => {
       begin();
       const prompt = render(strings, values);
-      return makeResult({
-        run: async (signal) => {
-          const outcome = await drive({ kind: "value", schema }, prompt, signal);
+      return makeResult<StandardSchemaV1.InferOutput<S>>({
+        run: async (signal: AbortSignal): Promise<StandardSchemaV1.InferOutput<S>> => {
+          const outcome = await driveTurn(deps, { kind: "value", schema }, prompt, signal);
           return outcome.kind === "value" ? outcome.value : undefined;
         },
-        usage: () => readUsage(runtime),
+        usage: (): AgentUsage => readUsage(runtime),
       });
     };
 
@@ -690,13 +707,8 @@ function statelessSource(runtime: Runtime, model: string, options: AgentOptions)
   // harness is resolved per turn, so a method's @foom.config({ harness }) (live in
   // runtime.methodConfig while it runs) takes effect for turns it makes.
   return {
-    get: () =>
-      Promise.resolve(
-        harnessPort(
-          runtime,
-          optionsHarness(runtime, options),
-        )(openOptions(runtime, model, options)),
-      ),
+    get: async () =>
+      harnessPort(runtime, optionsHarness(runtime, options))(openOptions(runtime, model, options)),
   };
 }
 
@@ -707,6 +719,7 @@ function statelessSource(runtime: Runtime, model: string, options: AgentOptions)
 function makeSource(open: () => Promise<HarnessSession>): SessionSource {
   let opened: Promise<HarnessSession> | undefined;
   return {
+    // eslint-disable-next-line @typescript-eslint/promise-function-async -- returns the cached promise by identity (single-flight); `async` would allocate a fresh wrapper each call.
     get: () => {
       opened ??= open();
       return opened;
@@ -726,7 +739,8 @@ function sessionHandle(
     prose: run.prose,
     value: run.value,
     // Same transcript, options layered: share the source (and its single-flight guard).
-    with: (extra) => sessionHandle(runtime, { ...options, ...extra }, source),
+    with: (extra: AgentOptions): AgentSession =>
+      sessionHandle(runtime, { ...options, ...extra }, source),
     // Branch the transcript into an independent session. Resolved on the fork's
     // first turn from the parent's transcript as it then stands; an unsupported
     // harness surfaces FoomtimeConfigError.
@@ -742,7 +756,7 @@ function sessionHandle(
           return parent.fork();
         }),
       ),
-    get usage() {
+    get usage(): AgentUsage {
       return readUsage(runtime);
     },
   };
@@ -756,7 +770,7 @@ function makeSession(runtime: Runtime, options: AgentOptions): AgentSession {
   return sessionHandle(
     runtime,
     options,
-    makeSource(() => Promise.resolve(port(openOptions(runtime, model, options)))),
+    makeSource(async () => port(openOptions(runtime, model, options))),
   );
 }
 
@@ -847,10 +861,13 @@ function makeScope(
     do: run.do,
     prose: run.prose,
     value: run.value,
-    with: (extra) => makeScope(runtime, { ...options, ...extra }, name, spanId, parentSpan),
-    scope: (child) => makeScope(runtime, options, child, runtime.nextSpan(), spanId),
-    annotate: (attributes) => emitAll(runtime, { type: "annotate", span: spanId, attributes }),
-    log: (message, level = "info") =>
+    with: (extra: AgentOptions): AgentScope =>
+      makeScope(runtime, { ...options, ...extra }, name, spanId, parentSpan),
+    scope: (child: string): AgentScope =>
+      makeScope(runtime, options, child, runtime.nextSpan(), spanId),
+    annotate: (attributes: Record<string, unknown>): void =>
+      emitAll(runtime, { type: "annotate", span: spanId, attributes }),
+    log: (message: string, level: "info" | "warn" | "error" = "info"): void =>
       emitAll(runtime, { type: "log", span: spanId, message, level }),
   };
 }
@@ -873,17 +890,19 @@ function makeContext<P extends object>(
     prose: run.prose,
     value: run.value,
     program: runtime.instance as P,
-    get usage() {
+    get usage(): AgentUsage {
       return readUsage(runtime);
     },
-    session: (sessionOptions) => makeSession(runtime, { ...options, ...sessionOptions }),
-    with: (extra) => makeContext<P>(runtime, { ...options, ...extra }),
-    scope: (name) => makeScope(runtime, options, name, runtime.nextSpan()),
-    onEvent: (handler) => {
+    session: (sessionOptions?: AgentOptions): AgentSession =>
+      makeSession(runtime, { ...options, ...sessionOptions }),
+    with: (extra: AgentOptions): AgentProgramContext<P> =>
+      makeContext<P>(runtime, { ...options, ...extra }),
+    scope: (name: string): AgentScope => makeScope(runtime, options, name, runtime.nextSpan()),
+    onEvent: (handler: (event: AgentEvent) => void): void => {
       runtime.listeners.add(handler);
     },
-    export: (exporter) => {
-      runtime.listeners.add((event) => exporter.export(event));
+    export: (exporter: AgentTraceExporter): void => {
+      runtime.listeners.add((event: AgentEvent): void => exporter.export(event));
     },
   };
   return context;
@@ -968,6 +987,12 @@ async function runWithProgramTimeout<T>(main: Promise<T>, maxDuration: string): 
   }
 }
 
+/**
+ * Run a program to completion: validate `rawInput` against the program's declared
+ * input schema, instantiate it, wire the configured harness(es) and any trace
+ * listener, and return `main()`'s result. The top-level entry point the CLI and
+ * embedders call.
+ */
 export async function runProgram<P extends FoomtimeProgram<never, unknown>>(
   ProgramClass: abstract new () => P,
   rawInput: unknown,
@@ -982,7 +1007,7 @@ export async function runProgram<P extends FoomtimeProgram<never, unknown>>(
   const defaultHarness = resolveDefaultHarness(options);
 
   const defaults = options.defaults !== undefined ? pickConfig(options.defaults) : {};
-  if (defaults.model === undefined) defaults.model = options.model;
+  defaults.model ??= options.model;
   if (defaults.harness === undefined && defaultHarness !== undefined) {
     defaults.harness = defaultHarness;
   }
@@ -1016,6 +1041,7 @@ export async function runProgram<P extends FoomtimeProgram<never, unknown>>(
 
   attachContext(instance, makeContext(runtime, {}));
 
+  // eslint-disable-next-line @typescript-eslint/promise-function-async -- passes the program's main() promise through untouched; `async` rewraps and breaks the generic ReturnType<P["main"]> inference (TS2322).
   const main = withSpan(runtime, "main", "program", () => instance.main(input as never));
   const maxDuration = (ProgramClass as unknown as { maxProgramDuration?: string })
     .maxProgramDuration;

@@ -7,7 +7,7 @@
 // names, not a heuristic) so it can never touch unrelated text.
 
 /** The Claude Code MCP tool-name prefix for a given server name. */
-export function mcpPrefix(serverName: string): string {
+function mcpPrefix(serverName: string): string {
   return `mcp__${serverName}__`;
 }
 

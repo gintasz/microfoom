@@ -146,37 +146,15 @@ function computeClock(args: {
   return undefined;
 }
 
-export function App({
-  store,
-  initialMode,
-  showSystem: showSystemInit,
-  showNotices: showNoticesInit,
-  onRerun,
-}: AppProps): React.ReactNode {
-  const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
-  const renderer = useRenderer();
-  const { width, height } = useTerminalDimensions();
-  const [selected, setSelected] = useState<string | undefined>(undefined);
-  const [showSystem, setShowSystem] = useState(showSystemInit);
-  const [showNotices, setShowNotices] = useState(showNoticesInit);
-
-  // Track the terminal's light/dark mode live (the entry seeds it from an OSC
-  // query, which is what makes VS Code's light terminal show a white panel).
+/** Track the terminal's light/dark mode live and keep the renderer background in
+ *  sync. The entry seeds the mode from an OSC query (what makes VS Code's light
+ *  terminal show a white panel); we then follow `theme_mode` events. */
+function useLiveThemeMode(
+  initialMode: ThemeMode,
+  renderer: ReturnType<typeof useRenderer>,
+): Palette {
   const [mode, setMode] = useState<ThemeMode>(initialMode);
   const palette = paletteFor(mode);
-
-  // Header clock. The stream carries no timestamps, so we baseline on mount (a
-  // re-run respawns the process → fresh baseline) and tick ~4×/s while running.
-  // We also stamp each span's first-seen wall-clock so an in-flight (open) span can
-  // show a live elapsed the metrics column can't — it has no duration until it ends.
-  const startedAt = useMemo(() => Date.now(), []);
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (snapshot.status !== "running") return;
-    const id = setInterval(() => setNow(Date.now()), 250);
-    return () => clearInterval(id);
-  }, [snapshot.status]);
-  const firstSeen = useRef<Map<string, number>>(new Map());
   useEffect(() => {
     const sync = (): void => {
       const detected = renderer.themeMode;
@@ -191,13 +169,31 @@ export function App({
   useEffect(() => {
     renderer.setBackgroundColor(palette.bg);
   }, [renderer, palette.bg]);
+  return palette;
+}
 
-  // One accel instance per pane, persisted across renders so streaks accumulate.
-  const transcriptAccel = useMemo(() => new MacScrollAccel(), []);
-  const traceAccel = useMemo(() => new MacScrollAccel({ base: 1, max: 8 }), []);
+/** Header-clock state: a mount baseline (a re-run respawns the process → fresh
+ *  baseline), a ~4×/s tick while running, and a per-span first-seen map so an open
+ *  span can show live elapsed the metrics column can't (it has no duration yet). */
+function useElapsedClock(running: boolean): {
+  startedAt: number;
+  now: number;
+  firstSeen: Map<string, number>;
+} {
+  const startedAt = useMemo(() => Date.now(), []);
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!running) return;
+    const id = setInterval(() => setNow(Date.now()), 250);
+    return () => clearInterval(id);
+  }, [running]);
+  const firstSeen = useRef<Map<string, number>>(new Map());
+  return { startedAt, now, firstSeen: firstSeen.current };
+}
 
-  // Drag-to-select copies to the clipboard (OSC 52): the app owns the mouse, so
-  // native selection + Cmd/Ctrl-C can't reach it. Show a brief confirmation.
+/** Drag-to-select copies to the clipboard (OSC 52): the app owns the mouse, so
+ *  native selection + Cmd/Ctrl-C can't reach it. Reports the copied size briefly. */
+function useClipboardCopy(): number | undefined {
   const [copied, setCopied] = useState<number | undefined>(undefined);
   useSelectionHandler((selection) => {
     const text = selection.getSelectedText();
@@ -208,6 +204,45 @@ export function App({
     const handle = setTimeout(() => setCopied(undefined), 1500);
     return () => clearTimeout(handle);
   }, [copied]);
+  return copied;
+}
+
+/** All derived view state for one render: the run tree, the (focus-filtered)
+ *  transcript, the contextual clock, and the header status. */
+function useRunView(args: {
+  store: TuiStore;
+  renderer: ReturnType<typeof useRenderer>;
+  initialMode: ThemeMode;
+  selected: string | undefined;
+  showSystem: boolean;
+}): {
+  snapshot: ReturnType<TuiStore["getSnapshot"]>;
+  width: number;
+  height: number;
+  palette: Palette;
+  transcriptAccel: MacScrollAccel;
+  traceAccel: MacScrollAccel;
+  tree: RunNode;
+  rows: readonly TreeRow[];
+  shown: readonly TranscriptEntry[];
+  focused: boolean;
+  traceWidth: number;
+  statusColor: string;
+  statusText: string;
+  clock: { text: string; span: boolean } | undefined;
+  file: string;
+  copied: number | undefined;
+} {
+  const { store, renderer, initialMode, selected, showSystem } = args;
+  const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
+  const { width, height } = useTerminalDimensions();
+  const palette = useLiveThemeMode(initialMode, renderer);
+  const { startedAt, now, firstSeen } = useElapsedClock(snapshot.status === "running");
+  const copied = useClipboardCopy();
+
+  // One accel instance per pane, persisted across renders so streaks accumulate.
+  const transcriptAccel = useMemo(() => new MacScrollAccel(), []);
+  const traceAccel = useMemo(() => new MacScrollAccel({ base: 1, max: 8 }), []);
 
   const tree = useMemo(() => buildRunTree(snapshot.events), [snapshot.events]);
   const rows = useMemo(() => flattenTree(tree), [tree]);
@@ -223,10 +258,201 @@ export function App({
     return list;
   }, [transcript, focusSpans, showSystem]);
 
+  const traceWidth = Math.max(26, Math.floor(width * 0.4));
+  const { color: statusColor, text: statusText } = statusStyle(snapshot.status, palette);
+  stampFirstSeen(rows, firstSeen, now);
+  const clock = computeClock({
+    selected,
+    tree,
+    now,
+    firstSeen,
+    startedAt,
+    status: snapshot.status,
+  });
+  const file = snapshot.meta?.file.split("/").pop() ?? "—";
+
+  return {
+    snapshot,
+    width,
+    height,
+    palette,
+    transcriptAccel,
+    traceAccel,
+    tree,
+    rows,
+    shown,
+    focused: focusSpans !== undefined,
+    traceWidth,
+    statusColor,
+    statusText,
+    clock,
+    file,
+    copied,
+  };
+}
+
+interface HeaderProps {
+  readonly palette: Palette;
+  readonly file: string;
+  readonly harness: string;
+  readonly model: string;
+  readonly clock: { text: string; span: boolean } | undefined;
+  readonly statusColor: string;
+  readonly statusText: string;
+}
+
+function AppHeader(props: HeaderProps): React.ReactNode {
+  const { palette, file, harness, model, clock, statusColor, statusText } = props;
+  return (
+    <box
+      height={1}
+      flexDirection="row"
+      backgroundColor={palette.panelBg}
+      paddingLeft={1}
+      paddingRight={1}
+    >
+      <text fg={palette.accent}>microfoom</text>
+      <text fg={palette.dim}>{`  ${file}  ·  ${harness}  ·  ${model}`}</text>
+      <box flexGrow={1} />
+      {clock !== undefined ? (
+        <text fg={clock.span ? palette.accent : palette.dim}>{`${clock.text}  `}</text>
+      ) : null}
+      <text fg={statusColor}>{statusText}</text>
+    </box>
+  );
+}
+
+interface TracePaneProps {
+  readonly palette: Palette;
+  readonly rows: readonly TreeRow[];
+  readonly traceWidth: number;
+  readonly traceAccel: MacScrollAccel;
+  readonly selected: string | undefined;
+  readonly onSelect: (span: string | undefined) => void;
+}
+
+function TracePane(props: TracePaneProps): React.ReactNode {
+  const { palette, rows, traceWidth, traceAccel, selected, onSelect } = props;
+  return (
+    <scrollbox
+      width={traceWidth}
+      scrollY
+      scrollAcceleration={traceAccel}
+      backgroundColor={palette.panelBg}
+      border
+      borderColor={palette.border}
+      title=" TRACE "
+      titleColor={palette.dim}
+    >
+      {rows.map((row) => (
+        <TraceRowView
+          key={row.span}
+          row={row}
+          palette={palette}
+          width={traceWidth}
+          selected={row.span === selected}
+          onSelect={() => onSelect(row.span)}
+        />
+      ))}
+    </scrollbox>
+  );
+}
+
+interface TranscriptPaneProps {
+  readonly palette: Palette;
+  readonly shown: readonly TranscriptEntry[];
+  readonly error: string | undefined;
+  readonly status: "running" | "done" | "error";
+  readonly selected: string | undefined;
+  readonly focused: boolean;
+  readonly transcriptAccel: MacScrollAccel;
+  readonly showNotices: boolean;
+}
+
+function TranscriptPane(props: TranscriptPaneProps): React.ReactNode {
+  const { palette, shown, error, status, selected, focused, transcriptAccel, showNotices } = props;
+  return (
+    <scrollbox
+      flexGrow={1}
+      scrollY
+      scrollAcceleration={transcriptAccel}
+      stickyScroll
+      stickyStart="bottom"
+      backgroundColor={palette.bg}
+      border
+      borderColor={palette.border}
+      title={focused ? ` TRANSCRIPT · ${selected} ` : " TRANSCRIPT "}
+      titleColor={palette.dim}
+    >
+      {shown.length === 0 && error === undefined ? (
+        <box flexDirection="column" alignItems="center" paddingTop={2}>
+          <text fg={palette.dim}>{emptyMessage(status, selected)}</text>
+        </box>
+      ) : (
+        shown.map((entry, i) => (
+          <EntryView key={i} entry={entry} palette={palette} showNotices={showNotices} />
+        ))
+      )}
+      {/* Surface a run failure (bad input schema, thrown program, …) in the pane
+          itself — the header alone only flips to "● error". Last child so it stays
+          visible under the transcript's sticky-bottom scroll. */}
+      {error !== undefined ? (
+        <box flexDirection="column" paddingTop={1} paddingLeft={1} paddingRight={1}>
+          <text fg={palette.error}>✦ error</text>
+          <text fg={palette.error}>{error}</text>
+        </box>
+      ) : null}
+    </scrollbox>
+  );
+}
+
+interface FooterProps {
+  readonly palette: Palette;
+  readonly showSystem: boolean;
+  readonly showNotices: boolean;
+  readonly copied: number | undefined;
+  readonly tree: ReturnType<typeof buildRunTree>;
+}
+
+function AppFooter(props: FooterProps): React.ReactNode {
+  const { palette, showSystem, showNotices, copied, tree } = props;
+  return (
+    <box
+      height={1}
+      flexDirection="row"
+      backgroundColor={palette.panelBg}
+      paddingLeft={1}
+      paddingRight={1}
+    >
+      <text fg={palette.dim}>
+        r rerun · <span fg={showSystem ? palette.accent : palette.dim}>s sys prompt</span> ·{" "}
+        <span fg={showNotices ? palette.accent : palette.dim}>m full user msg</span> · drag copy ·
+        ↑↓ select · a all · q quit
+      </text>
+      <box flexGrow={1} />
+      {copied !== undefined ? <text fg={palette.ok}>{`✓ copied ${copied} chars  `}</text> : null}
+      <text fg={palette.dim}>{footerStats(tree)}</text>
+    </box>
+  );
+}
+
+export function App({
+  store,
+  initialMode,
+  showSystem: showSystemInit,
+  showNotices: showNoticesInit,
+  onRerun,
+}: AppProps): React.ReactNode {
+  const renderer = useRenderer();
+  const [selected, setSelected] = useState<string | undefined>(undefined);
+  const [showSystem, setShowSystem] = useState(showSystemInit);
+  const [showNotices, setShowNotices] = useState(showNoticesInit);
+  const v = useRunView({ store, renderer, initialMode, selected, showSystem });
+
   useKeyboard((key) =>
     handleKey(key, {
       renderer,
-      rows,
+      rows: v.rows,
       selected,
       setSelected,
       setShowSystem,
@@ -235,114 +461,44 @@ export function App({
     }),
   );
 
-  const traceWidth = Math.max(26, Math.floor(width * 0.4));
-  const { color: statusColor, text: statusText } = statusStyle(snapshot.status, palette);
-  stampFirstSeen(rows, firstSeen.current, now);
-  const clock = computeClock({
-    selected,
-    tree,
-    now,
-    firstSeen: firstSeen.current,
-    startedAt,
-    status: snapshot.status,
-  });
-  const file = snapshot.meta?.file.split("/").pop() ?? "—";
-
   return (
-    <box width={width} height={height} backgroundColor={palette.bg} flexDirection="column">
-      {/* Header */}
-      <box
-        height={1}
-        flexDirection="row"
-        backgroundColor={palette.panelBg}
-        paddingLeft={1}
-        paddingRight={1}
-      >
-        <text fg={palette.accent}>microfoom</text>
-        <text fg={palette.dim}>
-          {`  ${file}  ·  ${snapshot.meta?.harness ?? ""}  ·  ${snapshot.meta?.model ?? ""}`}
-        </text>
-        <box flexGrow={1} />
-        {clock !== undefined ? (
-          <text fg={clock.span ? palette.accent : palette.dim}>{`${clock.text}  `}</text>
-        ) : null}
-        <text fg={statusColor}>{statusText}</text>
-      </box>
-
-      {/* Body: trace | transcript */}
+    <box width={v.width} height={v.height} backgroundColor={v.palette.bg} flexDirection="column">
+      <AppHeader
+        palette={v.palette}
+        file={v.file}
+        harness={v.snapshot.meta?.harness ?? ""}
+        model={v.snapshot.meta?.model ?? ""}
+        clock={v.clock}
+        statusColor={v.statusColor}
+        statusText={v.statusText}
+      />
       <box flexGrow={1} flexDirection="row">
-        <scrollbox
-          width={traceWidth}
-          scrollY
-          scrollAcceleration={traceAccel}
-          backgroundColor={palette.panelBg}
-          border
-          borderColor={palette.border}
-          title=" TRACE "
-          titleColor={palette.dim}
-        >
-          {rows.map((row) => (
-            <TraceRowView
-              key={row.span}
-              row={row}
-              palette={palette}
-              width={traceWidth}
-              selected={row.span === selected}
-              onSelect={() => setSelected(row.span)}
-            />
-          ))}
-        </scrollbox>
-
-        <scrollbox
-          flexGrow={1}
-          scrollY
-          scrollAcceleration={transcriptAccel}
-          stickyScroll
-          stickyStart="bottom"
-          backgroundColor={palette.bg}
-          border
-          borderColor={palette.border}
-          title={focusSpans === undefined ? " TRANSCRIPT " : ` TRANSCRIPT · ${selected} `}
-          titleColor={palette.dim}
-        >
-          {shown.length === 0 && snapshot.error === undefined ? (
-            <box flexDirection="column" alignItems="center" paddingTop={2}>
-              <text fg={palette.dim}>{emptyMessage(snapshot.status, selected)}</text>
-            </box>
-          ) : (
-            shown.map((entry, i) => (
-              <EntryView key={i} entry={entry} palette={palette} showNotices={showNotices} />
-            ))
-          )}
-          {/* Surface a run failure (bad input schema, thrown program, …) in the pane
-              itself — the header alone only flips to "● error". Last child so it stays
-              visible under the transcript's sticky-bottom scroll. */}
-          {snapshot.error !== undefined ? (
-            <box flexDirection="column" paddingTop={1} paddingLeft={1} paddingRight={1}>
-              <text fg={palette.error}>✦ error</text>
-              <text fg={palette.error}>{snapshot.error}</text>
-            </box>
-          ) : null}
-        </scrollbox>
+        <TracePane
+          palette={v.palette}
+          rows={v.rows}
+          traceWidth={v.traceWidth}
+          traceAccel={v.traceAccel}
+          selected={selected}
+          onSelect={setSelected}
+        />
+        <TranscriptPane
+          palette={v.palette}
+          shown={v.shown}
+          error={v.snapshot.error}
+          status={v.snapshot.status}
+          selected={selected}
+          focused={v.focused}
+          transcriptAccel={v.transcriptAccel}
+          showNotices={showNotices}
+        />
       </box>
-
-      {/* Footer */}
-      <box
-        height={1}
-        flexDirection="row"
-        backgroundColor={palette.panelBg}
-        paddingLeft={1}
-        paddingRight={1}
-      >
-        <text fg={palette.dim}>
-          r rerun · <span fg={showSystem ? palette.accent : palette.dim}>s sys prompt</span> ·{" "}
-          <span fg={showNotices ? palette.accent : palette.dim}>m full user msg</span> · drag copy ·
-          ↑↓ select · a all · q quit
-        </text>
-        <box flexGrow={1} />
-        {copied !== undefined ? <text fg={palette.ok}>{`✓ copied ${copied} chars  `}</text> : null}
-        <text fg={palette.dim}>{footerStats(tree)}</text>
-      </box>
+      <AppFooter
+        palette={v.palette}
+        showSystem={showSystem}
+        showNotices={showNotices}
+        copied={v.copied}
+        tree={v.tree}
+      />
     </box>
   );
 }

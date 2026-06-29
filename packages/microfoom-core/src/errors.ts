@@ -34,8 +34,8 @@ export interface FoomtimeErrorOptions {
 
 /** Base for the whole taxonomy. Each subclass reports its own class name. */
 export class FoomtimeError extends Error {
-  readonly data?: unknown;
-  constructor(message: string, options?: FoomtimeErrorOptions) {
+  public readonly data?: unknown;
+  public constructor(message: string, options?: FoomtimeErrorOptions) {
     super(message, { cause: options?.cause });
     this.name = new.target.name;
     this.data = options?.data;
@@ -49,8 +49,8 @@ export class FoomtimeError extends Error {
  * FoomtimeRepairExhaustedError, NOT this — they have no `code`.
  */
 export class FoomtimeThrowError extends FoomtimeError {
-  readonly code: string;
-  constructor(message: string, code: string, options?: FoomtimeErrorOptions) {
+  public readonly code: string;
+  public constructor(message: string, code: string, options?: FoomtimeErrorOptions) {
     super(message, options);
     this.code = code;
   }
@@ -78,8 +78,8 @@ export type RepairChannel = "args" | "return" | "dispatch";
  * "dispatch" (a call to an unexposed method).
  */
 export class FoomtimeRepairExhaustedError extends FoomtimeError {
-  readonly channel: RepairChannel;
-  constructor(message: string, channel: RepairChannel, options?: FoomtimeErrorOptions) {
+  public readonly channel: RepairChannel;
+  public constructor(message: string, channel: RepairChannel, options?: FoomtimeErrorOptions) {
     super(message, options);
     this.channel = channel;
   }
@@ -92,19 +92,19 @@ export class FoomtimeRepairExhaustedError extends FoomtimeError {
  */
 export abstract class FoomtimeHarnessError extends FoomtimeError {
   /** HTTP-ish status, if the harness surfaced one. */
-  readonly status?: number;
+  public readonly status?: number;
   /** True when retrying the same turn may succeed — the only thing a catcher needs. */
-  abstract readonly retryable: boolean;
+  public abstract readonly retryable: boolean;
 }
 /** Transient: harness disconnected, model 5xx, rate-limited. Safe to retry. */
 export class FoomtimeHarnessUnavailableError extends FoomtimeHarnessError {
-  readonly retryable = true;
+  public readonly retryable = true;
   /** Honor a harness/provider backoff hint, if any. */
-  readonly retryAfterMs?: number;
+  public readonly retryAfterMs?: number;
 }
 /** Non-transient: permission denied, model not allowed, context overflow, content filtered. */
 export class FoomtimeHarnessRejectedError extends FoomtimeHarnessError {
-  readonly retryable = false;
+  public readonly retryable = false;
 }
 
 /** Bad config (no such model, invalid thinking, unenforceable cap, ...). */

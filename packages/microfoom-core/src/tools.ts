@@ -48,14 +48,14 @@ export interface ProgramTurnContext {
   readonly invoke: (method: string, args: unknown) => Promise<string>;
   /** True if the method is exposed (agent-callable). */
   readonly isExposed: (method: string) => boolean;
-  /** JSON Schema of a method's parameters (for foom_inspect and the {tool} tier). */
+  /** JSON Schema of a method's parameters (for foom_inspect and the `{tool}` tier). */
   readonly paramSchema: (method: string) => JsonSchema | undefined;
   /** Validate a raw args object against a method's derived schema (undefined → no schema). */
   readonly validateArgs: (
     method: string,
     args: unknown,
   ) => Promise<readonly StandardSchemaV1.Issue[] | undefined>;
-  /** Exposed methods advertised as their own native tool ({tool} tier). */
+  /** Exposed methods advertised as their own native tool (`{tool}` tier). */
   readonly toolTierMethods: ReadonlyArray<{
     name: string;
     description: string;
@@ -112,6 +112,130 @@ const objectSchema = (
   properties: Record<string, JsonSchema>,
   required: readonly string[],
 ): JsonSchema => ({ type: "object", properties, required, additionalProperties: false });
+
+/** Shared dependencies the control-tool factories close over. */
+interface ToolDeps {
+  readonly ctx: ProgramTurnContext;
+  readonly capture: Capture;
+  readonly dispatch: (method: string, args: unknown) => Promise<ToolExecResult>;
+  /** repairableThenMaybeStop: count a repairable miss, stop once exhausted. */
+  readonly miss: (content: string, channel: RepairChannel) => ToolExecResult;
+}
+
+/** foom_call: dispatch an exposed method with a generic arguments object. */
+function callTool(d: ToolDeps): NeutralToolDef {
+  return {
+    name: CONTROL_TOOLS.call,
+    description: CONTROL_TOOL_DESCRIPTIONS[CONTROL_TOOLS.call],
+    promptSnippet: CONTROL_TOOL_SNIPPETS[CONTROL_TOOLS.call],
+    promptGuidelines: CONTROL_TOOL_GUIDELINES[CONTROL_TOOLS.call],
+    parameters: objectSchema({ method: { type: "string" }, arguments: { type: "object" } }, [
+      "method",
+    ]),
+    execute: async (args: unknown): Promise<ToolExecResult> => {
+      const method = field(args, "method");
+      if (typeof method !== "string")
+        return d.miss(TOOL_RESULTS.invalidArguments("`method` must be a string"), "args");
+      return d.dispatch(method, field(args, "arguments") ?? {});
+    },
+  };
+}
+
+/** foom_inspect: return a method's parameter schema (no dispatch, no repair cost). */
+function inspectTool(d: ToolDeps): NeutralToolDef {
+  return {
+    name: CONTROL_TOOLS.inspect,
+    description: CONTROL_TOOL_DESCRIPTIONS[CONTROL_TOOLS.inspect],
+    promptSnippet: CONTROL_TOOL_SNIPPETS[CONTROL_TOOLS.inspect],
+    promptGuidelines: CONTROL_TOOL_GUIDELINES[CONTROL_TOOLS.inspect],
+    parameters: objectSchema({ method: { type: "string" } }, ["method"]),
+    // eslint-disable-next-line @typescript-eslint/require-await -- async satisfies the Tool `execute` port (Promise<ToolExecResult>); foom_inspect is synchronous.
+    execute: async (args: unknown): Promise<ToolExecResult> => {
+      const method = field(args, "method");
+      if (typeof method !== "string")
+        return d.miss(TOOL_RESULTS.invalidArguments("`method` must be a string"), "args");
+      if (!d.ctx.isExposed(method)) return d.miss(TOOL_RESULTS.notExposed(method), "dispatch");
+      return ok(JSON.stringify(d.ctx.paramSchema(method) ?? { type: "object" }));
+    },
+  };
+}
+
+/** foom_throw: abort the turn with a message and an optional code (F7). */
+function throwTool(d: ToolDeps): NeutralToolDef {
+  return {
+    name: CONTROL_TOOLS.throw,
+    description: CONTROL_TOOL_DESCRIPTIONS[CONTROL_TOOLS.throw],
+    promptSnippet: CONTROL_TOOL_SNIPPETS[CONTROL_TOOLS.throw],
+    promptGuidelines: CONTROL_TOOL_GUIDELINES[CONTROL_TOOLS.throw],
+    parameters: objectSchema({ message: { type: "string" }, code: { type: "string" } }, [
+      "message",
+    ]),
+    // eslint-disable-next-line @typescript-eslint/require-await -- async satisfies the Tool `execute` port (Promise<ToolExecResult>); foom_throw is synchronous.
+    execute: async (args: unknown): Promise<ToolExecResult> => {
+      const message = field(args, "message");
+      const code = field(args, "code");
+      if (typeof message !== "string") {
+        return d.miss(TOOL_RESULTS.invalidArguments("`message` must be a string"), "args");
+      }
+      if (code !== undefined && typeof code !== "string") {
+        return d.miss(TOOL_RESULTS.invalidArguments("`code` must be a string"), "args");
+      }
+      // `code` is optional: omitted → the default (`foom_throw` always carries one, F7).
+      d.capture.thrown = { message, code: code ?? DEFAULT_THROW_CODE };
+      d.capture.has = true;
+      return stop(TOOL_RESULTS.raised);
+    },
+  };
+}
+
+/** foom_return for a value turn: validate the payload against the turn schema. */
+function valueReturnTool(schema: StandardSchemaV1, d: ToolDeps): NeutralToolDef {
+  // Advertise the expected return shape when the validator can produce one
+  // (Standard JSON Schema); otherwise leave it open and rely on repair.
+  const valueSchema = standardInputJsonSchema(schema) ?? {};
+  return {
+    name: CONTROL_TOOLS.return,
+    description: CONTROL_TOOL_DESCRIPTIONS[CONTROL_TOOLS.return],
+    promptSnippet: CONTROL_TOOL_SNIPPETS[CONTROL_TOOLS.return],
+    promptGuidelines: CONTROL_TOOL_GUIDELINES[CONTROL_TOOLS.return],
+    parameters: objectSchema({ value: valueSchema }, ["value"]),
+    execute: async (args: unknown): Promise<ToolExecResult> => {
+      const result = await Promise.resolve(schema["~standard"].validate(field(args, "value")));
+      if (result.issues !== undefined) {
+        return d.miss(TOOL_RESULTS.invalidReturn(formatIssues(result.issues)), "return");
+      }
+      d.capture.value = result.value;
+      d.capture.has = true;
+      return stop(TOOL_RESULTS.returned);
+    },
+  };
+}
+
+/** foom_return for a `do` turn: no payload, just terminates (mirrors `return;`). */
+function doReturnTool(d: ToolDeps): NeutralToolDef {
+  return {
+    name: CONTROL_TOOLS.return,
+    description: DONE_RETURN_DESCRIPTION,
+    parameters: objectSchema({}, []),
+    // eslint-disable-next-line @typescript-eslint/require-await -- async satisfies the Tool `execute` port; foom_return just flips a capture flag synchronously.
+    execute: async () => {
+      d.capture.has = true;
+      return stop(TOOL_RESULTS.returned);
+    },
+  };
+}
+
+/** Each exposed `{tool}`-tier method advertised as its own native tool. */
+function tierTools(d: ToolDeps): NeutralToolDef[] {
+  return d.ctx.toolTierMethods.map((method) => ({
+    name: method.name,
+    description: method.description,
+    ...(method.promptSnippet !== undefined ? { promptSnippet: method.promptSnippet } : {}),
+    ...(method.promptGuidelines !== undefined ? { promptGuidelines: method.promptGuidelines } : {}),
+    parameters: d.ctx.paramSchema(method.name) ?? { type: "object" },
+    execute: async (args: unknown): Promise<ToolExecResult> => d.dispatch(method.name, args),
+  }));
+}
 
 function buildTurnTools(
   ctx: ProgramTurnContext,
@@ -171,129 +295,15 @@ function buildTurnTools(
     }
   };
 
-  const tools: NeutralToolDef[] = [
-    {
-      name: CONTROL_TOOLS.call,
-      description: CONTROL_TOOL_DESCRIPTIONS[CONTROL_TOOLS.call],
-      promptSnippet: CONTROL_TOOL_SNIPPETS[CONTROL_TOOLS.call],
-      promptGuidelines: CONTROL_TOOL_GUIDELINES[CONTROL_TOOLS.call],
-      parameters: objectSchema({ method: { type: "string" }, arguments: { type: "object" } }, [
-        "method",
-      ]),
-      execute: async (args) => {
-        const method = field(args, "method");
-        if (typeof method !== "string")
-          return repairableThenMaybeStop(
-            TOOL_RESULTS.invalidArguments("`method` must be a string"),
-            "args",
-          );
-        return dispatch(method, field(args, "arguments") ?? {});
-      },
-    },
-    {
-      name: CONTROL_TOOLS.inspect,
-      description: CONTROL_TOOL_DESCRIPTIONS[CONTROL_TOOLS.inspect],
-      promptSnippet: CONTROL_TOOL_SNIPPETS[CONTROL_TOOLS.inspect],
-      promptGuidelines: CONTROL_TOOL_GUIDELINES[CONTROL_TOOLS.inspect],
-      parameters: objectSchema({ method: { type: "string" } }, ["method"]),
-      execute: async (args) => {
-        const method = field(args, "method");
-        if (typeof method !== "string")
-          return repairableThenMaybeStop(
-            TOOL_RESULTS.invalidArguments("`method` must be a string"),
-            "args",
-          );
-        if (!ctx.isExposed(method))
-          return repairableThenMaybeStop(TOOL_RESULTS.notExposed(method), "dispatch");
-        return ok(JSON.stringify(ctx.paramSchema(method) ?? { type: "object" }));
-      },
-    },
-    {
-      name: CONTROL_TOOLS.throw,
-      description: CONTROL_TOOL_DESCRIPTIONS[CONTROL_TOOLS.throw],
-      promptSnippet: CONTROL_TOOL_SNIPPETS[CONTROL_TOOLS.throw],
-      promptGuidelines: CONTROL_TOOL_GUIDELINES[CONTROL_TOOLS.throw],
-      parameters: objectSchema({ message: { type: "string" }, code: { type: "string" } }, [
-        "message",
-      ]),
-      execute: async (args) => {
-        const message = field(args, "message");
-        const code = field(args, "code");
-        if (typeof message !== "string") {
-          return repairableThenMaybeStop(
-            TOOL_RESULTS.invalidArguments("`message` must be a string"),
-            "args",
-          );
-        }
-        if (code !== undefined && typeof code !== "string") {
-          return repairableThenMaybeStop(
-            TOOL_RESULTS.invalidArguments("`code` must be a string"),
-            "args",
-          );
-        }
-        // `code` is optional: omitted → the default (`foom_throw` always carries one, F7).
-        capture.thrown = { message, code: code ?? DEFAULT_THROW_CODE };
-        capture.has = true;
-        return stop(TOOL_RESULTS.raised);
-      },
-    },
-  ];
-
-  if (mode.kind === "value") {
-    const schema = mode.schema;
-    // Advertise the expected return shape when the validator can produce one
-    // (Standard JSON Schema); otherwise leave it open and rely on repair.
-    const valueSchema = standardInputJsonSchema(schema) ?? {};
-    tools.push({
-      name: CONTROL_TOOLS.return,
-      description: CONTROL_TOOL_DESCRIPTIONS[CONTROL_TOOLS.return],
-      promptSnippet: CONTROL_TOOL_SNIPPETS[CONTROL_TOOLS.return],
-      promptGuidelines: CONTROL_TOOL_GUIDELINES[CONTROL_TOOLS.return],
-      parameters: objectSchema({ value: valueSchema }, ["value"]),
-      execute: async (args) => {
-        const result = await Promise.resolve(schema["~standard"].validate(field(args, "value")));
-        if (result.issues !== undefined) {
-          return repairableThenMaybeStop(
-            TOOL_RESULTS.invalidReturn(formatIssues(result.issues)),
-            "return",
-          );
-        }
-        capture.value = result.value;
-        capture.has = true;
-        return stop(TOOL_RESULTS.returned);
-      },
-    });
-  } else if (mode.kind === "do") {
-    // A `do` turn carries no value: foom_return takes no arguments and merely
-    // terminates the turn (mirrors `return;`). The cheap exit that avoids a final
-    // prose essay — same mechanism as value mode, minus the payload + validation.
-    tools.push({
-      name: CONTROL_TOOLS.return,
-      description: DONE_RETURN_DESCRIPTION,
-      parameters: objectSchema({}, []),
-      execute: async () => {
-        capture.has = true;
-        return stop(TOOL_RESULTS.returned);
-      },
-    });
-  }
-
-  for (const method of ctx.toolTierMethods) {
-    tools.push({
-      name: method.name,
-      description: method.description,
-      ...(method.promptSnippet !== undefined ? { promptSnippet: method.promptSnippet } : {}),
-      ...(method.promptGuidelines !== undefined
-        ? { promptGuidelines: method.promptGuidelines }
-        : {}),
-      parameters: ctx.paramSchema(method.name) ?? { type: "object" },
-      execute: (args) => dispatch(method.name, args),
-    });
-  }
-
+  const deps: ToolDeps = { ctx, capture, dispatch, miss: repairableThenMaybeStop };
+  const tools = [callTool(deps), inspectTool(deps), throwTool(deps)];
+  if (mode.kind === "value") tools.push(valueReturnTool(mode.schema, deps));
+  else if (mode.kind === "do") tools.push(doReturnTool(deps));
+  tools.push(...tierTools(deps));
   return tools;
 }
 
+// eslint-disable-next-line @typescript-eslint/promise-function-async -- builds timing plumbing via `new Promise`; `async` would wrap a promise in a promise for nothing.
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => reject(new FoomtimeTimeoutError(`turn exceeded ${ms}ms`)), ms);

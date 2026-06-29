@@ -38,9 +38,12 @@ function attach<T>(
   promise.catch(() => undefined);
   return {
     // biome-ignore lint/suspicious/noThenProperty: AgentResult is intentionally PromiseLike (F6 facade).
-    then: (onFulfilled, onRejected) => promise.then(onFulfilled, onRejected),
-    abort: (reason?: unknown) => controller.abort(reason),
-    get usage() {
+    then: <TResult1 = T, TResult2 = never>(
+      onFulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | null,
+      onRejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
+    ): PromiseLike<TResult1 | TResult2> => promise.then(onFulfilled, onRejected),
+    abort: (reason?: unknown): void => controller.abort(reason),
+    get usage(): AgentUsage {
       return usage();
     },
   };
@@ -72,7 +75,7 @@ export function makeTextStream(driver: ResultDriver<string>): {
   let cursor = 0;
 
   const sink: StreamSink = {
-    push: (chunk) => {
+    push: (chunk: string): void => {
       buffer.push(chunk);
       const waiter = waiters.shift();
       if (waiter !== undefined) waiter({ value: buffer[cursor++] as string, done: false });
@@ -84,7 +87,7 @@ export function makeTextStream(driver: ResultDriver<string>): {
         else waiter({ value: undefined, done: true });
       }
     },
-    fail: (error) => {
+    fail: (error: unknown): void => {
       failure = { error };
       done = true;
       for (const waiter of waiters.splice(0)) waiter({ value: undefined, done: true });
@@ -95,6 +98,7 @@ export function makeTextStream(driver: ResultDriver<string>): {
   const promise = driver.run(controller.signal);
 
   const iterator: AsyncIterator<string> = {
+    // eslint-disable-next-line @typescript-eslint/promise-function-async -- async-iterator next() resolves from a buffered waiter via `new Promise`; no value to await.
     next: () =>
       new Promise<IteratorResult<string>>((resolve, reject) => {
         if (failure !== undefined) {
@@ -118,7 +122,7 @@ export function makeTextStream(driver: ResultDriver<string>): {
     // biome-ignore lint/suspicious/noThenProperty: AgentTextStream is intentionally PromiseLike (F6 facade).
     then: base.then.bind(base),
     abort: base.abort.bind(base),
-    get usage() {
+    get usage(): AgentUsage {
       return base.usage;
     },
     [Symbol.asyncIterator]: () => iterator,

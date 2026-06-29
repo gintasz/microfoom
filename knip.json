@@ -1,8 +1,8 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
   "ignore": ["docs-website/**"],
-  "ignoreBinaries": ["claude"],
-  "ignoreExportsUsedInFile": true,
+  "ignoreBinaries": ["claude", "changeset"],
+  "ignoreExportsUsedInFile": false,
   "workspaces": {
     ".": { "entry": ["examples/*.ts"] },
     "packages/microfoom-cli": { "entry": ["src/tui.tsx"] },
