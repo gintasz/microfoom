@@ -6,6 +6,7 @@ foomreturn
 foomthrow
 foominspect
 claudecli
+codexcli
 foomulator
 foomy
 streamable
