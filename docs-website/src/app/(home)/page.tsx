@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { appName, asset } from '@/lib/shared';
 
 const features = [
   {
@@ -26,6 +27,14 @@ export default function HomePage() {
         <span className="rounded-full border border-fd-primary/30 bg-fd-primary/10 px-3 py-1 text-sm text-fd-primary">
           Coordination engineering for TypeScript
         </span>
+        {/* biome-ignore lint/performance/noImgElement: static export, next/image optimizer is disabled */}
+        <img
+          src={asset('/logo.png')}
+          alt={appName}
+          className="h-24 w-auto sm:h-28"
+          width={112}
+          height={112}
+        />
         <h1 className="bg-gradient-to-br from-indigo-400 to-indigo-600 bg-clip-text text-5xl font-bold tracking-tight text-transparent sm:text-6xl">
           microfoom
         </h1>
