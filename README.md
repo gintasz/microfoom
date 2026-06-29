@@ -149,7 +149,7 @@ Set config with `@foom.config({ ... })` on a class or method, with `.with({ ... 
 | `tools` | Harness tools the model may use (tri-state: `undefined` = all, `[]` = none, list = only those). FOOM tools are always available. |
 | `skills`  | Which of the harness's installed agent skills to offer the model this scope (same tri-state as `tools`, by skill name). |
 | `plugins` | Which of the harness's extensions to load this scope (same tri-state, by source name). |
-| `retries` | Retries on a *retryable* harness error. |
+| `retries` | Re-run a turn on a *transient* harness failure — provider/network error, model overloaded, no result produced. Default `0`. A deliberate `foom_throw` or a bad-config rejection is never retried; schema-validation failures use `repairAttempts`. |
 | `repairAttempts` | Validation failures tolerated before giving up (default `3`). |
 | `systemPrompt` | This scope's contribution: `{ append }` accumulates, `{ replace }` resets the base. |
 | `omitHarnessBasePrompt` | Drop the harness's own base prompt (its coding persona / project context), sending the model only microfoom's prompt + custom `systemPrompt`. |

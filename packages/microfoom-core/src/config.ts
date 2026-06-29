@@ -58,10 +58,12 @@ export interface AgentConfig {
    *  provider-specific raw string passed through untouched. Absent = inherit (and,
    *  at the widest scope, whatever the harness/model defaults to). */
   thinking?: ThinkingLevel;
-  /** How many times the harness may retry a turn that fails with a *retryable*
-   *  harness error ({@link FoomtimeHarnessUnavailableError}). Absent = the harness's
-   *  own default. Does not apply to validation failures — those use
-   *  {@link AgentConfig.repairAttempts}. */
+  /** How many times to re-run a turn that fails with a *transient* harness error
+   *  ({@link FoomtimeHarnessUnavailableError} — provider/network failure, model
+   *  overloaded, no result produced). The model's own in-turn tool repair and a
+   *  deliberate {@link FoomtimeHarnessRejectedError} or `foom_throw` are NOT retried;
+   *  schema-validation failures use {@link AgentConfig.repairAttempts} instead.
+   *  @defaultValue `0` (no retry) */
   retries?: number;
   /** Consecutive validation failures tolerated before the turn gives up with
    *  {@link FoomtimeRepairExhaustedError}. Each bad `foom_call`/`foom_return` is fed

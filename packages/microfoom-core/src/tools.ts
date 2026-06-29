@@ -13,6 +13,7 @@ import {
   FoomtimeCallDepthError,
   FoomtimeConfigError,
   FoomtimeError,
+  FoomtimeHarnessUnavailableError,
   FoomtimeRepairExhaustedError,
   FoomtimeThrowError,
   FoomtimeTimeoutError,
@@ -34,6 +35,7 @@ import type {
   JsonSchema,
   NeutralToolDef,
   SessionTurnRequest,
+  SessionTurnResult,
   StreamEvent,
   ToolExecResult,
 } from "./session.js";
@@ -343,6 +345,8 @@ export interface RunTurnParams {
   readonly thinking?: string;
   readonly allowedTools?: readonly string[];
   readonly omitBasePrompt?: boolean;
+  /** Re-run a turn on a transient harness failure up to this many times (default 0). */
+  readonly retries?: number;
   readonly onToken?: (token: LLMToken) => void;
   readonly onStreamChunk?: (chunk: string) => void;
   readonly signal?: AbortSignal;
@@ -442,6 +446,37 @@ function settleOutcome(
 }
 
 /**
+ * Run one harness turn, re-running it on a *transient* harness failure
+ * ({@link FoomtimeHarnessUnavailableError}) up to `params.retries` times (default 0).
+ * The model's own in-turn tool repair is separate; this only covers the harness
+ * itself failing (provider/network/no-result). A deliberate rejection or an aborted
+ * signal is never retried. The per-turn timeout applies to each attempt.
+ */
+async function runHarnessTurn(
+  params: RunTurnParams,
+  request: MutableTurnRequest,
+): Promise<SessionTurnResult> {
+  const max = params.retries ?? 0;
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      const turnPromise = params.session.runTurn(request);
+      return params.caps.maxTurnDurationMs === undefined
+        ? await turnPromise
+        : await withTimeout(turnPromise, params.caps.maxTurnDurationMs);
+    } catch (error) {
+      if (
+        attempt < max &&
+        params.signal?.aborted !== true &&
+        error instanceof FoomtimeHarnessUnavailableError
+      ) {
+        continue;
+      }
+      throw error;
+    }
+  }
+}
+
+/**
  * The repair loop: run the turn, interpret the outcome, and on a value/`do` turn
  * with no foom_return re-prompt the same session (transcript continues) up to
  * repairAttempts. The harness already repairs invalid tool calls within a turn.
@@ -454,11 +489,7 @@ async function runTurnWithRepair(
 ): Promise<TurnOutcome> {
   for (let attempt = 0; ; attempt += 1) {
     emitter.emit?.({ type: "user_prompt", span: emitter.span, text: request.prompt });
-    const turnPromise = params.session.runTurn(request);
-    const result =
-      params.caps.maxTurnDurationMs === undefined
-        ? await turnPromise
-        : await withTimeout(turnPromise, params.caps.maxTurnDurationMs);
+    const result = await runHarnessTurn(params, request);
     enforceCaps(params.caps, params.fold(accountFromDelta(result.usage, params.ctx.depth())));
 
     const outcome = settleOutcome(capture, params.mode, result.assistantText);
