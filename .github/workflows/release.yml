@@ -45,10 +45,17 @@ jobs:
 
       - run: pnpm run test
 
-      # Guard publishing on NPM_TOKEN presence. Without it, changeset publish
-      # fails with ENEEDAUTH on every push. When the secret is absent we leave
-      # `publish` empty so the action only opens/updates the version PR (needs
-      # GITHUB_TOKEN only); once the token is configured, publishing resumes.
+      # Publish is gated on two conditions; either being false leaves the
+      # `publish` input empty, so the action only opens/updates the version PR
+      # (needs GITHUB_TOKEN only) and never ships to npm:
+      #   1. NPM_TOKEN present — otherwise changeset publish dies with ENEEDAUTH.
+      #   2. The head commit is the Version Packages PR merge (its message
+      #      contains "chore: version packages", the `commit:`/`title:` below).
+      #      This means a release happens ONLY by merging that PR — an ordinary
+      #      push to main (even with no pending changesets) can never publish.
+      #      `contains` matches across squash, rebase, and merge-commit methods;
+      #      on workflow_dispatch head_commit is null, so manual runs only
+      #      refresh the version PR and never publish.
       - id: npm_auth
         run: |
           if [ -n "$NPM_TOKEN" ]; then
@@ -64,7 +71,7 @@ jobs:
         uses: changesets/action@v1
         with:
           version: pnpm run version-packages
-          publish: ${{ steps.npm_auth.outputs.present == 'true' && 'pnpm run release' || '' }}
+          publish: ${{ (steps.npm_auth.outputs.present == 'true' && contains(github.event.head_commit.message, 'chore: version packages')) && 'pnpm run release' || '' }}
           title: "chore: version packages"
           commit: "chore: version packages"
         env:
