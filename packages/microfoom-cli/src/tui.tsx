@@ -6,9 +6,9 @@
 
 import { isAbsolute, resolve } from "node:path";
 import process from "node:process";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
-import { type OpenSession, runProgram } from "@microfoom/core";
+import { createFileTurnStore, type OpenSession, runProgram, type TurnStore } from "@microfoom/core";
 import type { AgentEvent } from "@microfoom/core/trace";
 import { createPiOpenSession } from "@microfoom/pi-adapter";
 import { createCliRenderer } from "@opentui/core";
@@ -66,6 +66,27 @@ async function resolveTheme(
       ? override
       : await renderer.waitForThemeMode(THEME_QUERY_TIMEOUT_MS);
   return detected === "light" ? "light" : "dark";
+}
+
+/** A `<scheme>://` prefix in a `--store` URI (anything but `file://` is unsupported). */
+const STORE_URI_SCHEME = /^([a-z][a-z0-9+.-]*):\/\//i;
+
+/** Resolve `--store <uri>` (filesystem path or file:// URI) to an on-disk TurnStore;
+ *  undefined when absent. Mirrors the node CLI's resolver. */
+function resolveTuiStore(uri: string | undefined): TurnStore | undefined {
+  if (uri === undefined) {
+    return;
+  }
+  if (uri.startsWith("file://")) {
+    return createFileTurnStore(fileURLToPath(uri));
+  }
+  const scheme = STORE_URI_SCHEME.exec(uri);
+  if (scheme !== null) {
+    throw new Error(
+      `unsupported --store scheme "${scheme[1]}://" — use a filesystem path or file:// URI`,
+    );
+  }
+  return createFileTurnStore(isAbsolute(uri) ? uri : resolve(process.cwd(), uri));
 }
 
 /** Render the program input for the meta header: strings as-is, anything else as JSON. */
@@ -126,6 +147,7 @@ const TUI_PARSE_CONFIG = {
     skills: { type: "string" },
     plugins: { type: "string" },
     input: { type: "string" },
+    store: { type: "string" },
     theme: { type: "string" },
     "omit-harness-prompt": { type: "boolean", default: false },
     "system-prompt": { type: "boolean", default: false },
@@ -217,6 +239,7 @@ async function main(): Promise<void> {
   }
   const tools = toList(values.tools);
   const defaults = buildTuiDefaults(values.thinking, tools, skills, plugins);
+  const turnStore = resolveTuiStore(values.store);
   await runIntoStore(
     ProgramClass,
     input,
@@ -227,6 +250,7 @@ async function main(): Promise<void> {
       signal: controller.signal,
       onEvent: (event: AgentEvent) => store.push(event),
       ...(Object.keys(defaults).length > 0 ? { defaults } : {}),
+      ...(turnStore === undefined ? {} : { store: turnStore }),
     },
     store,
   );
