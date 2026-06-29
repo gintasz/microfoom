@@ -3,6 +3,7 @@
 // prose, and every tool call with its args + result — scrollable, sticky to the
 // newest line. Selecting a trace node filters the transcript to that subtree.
 
+import process from "node:process";
 import {
   buildRunTree,
   buildTranscript,
@@ -24,7 +25,15 @@ import type { Palette, ThemeMode } from "./theme.js";
 import { paletteFor } from "./theme.js";
 import { flattenTree, subtreeSpans, type TreeRow } from "./tree.js";
 
-export interface AppProps {
+const CLOCK_TICK_MS = 250;
+const COPIED_NOTICE_MS = 1500;
+const TRACE_PANE_MIN_WIDTH = 26;
+const TRACE_PANE_WIDTH_FRACTION = 0.4;
+const TRACE_LABEL_MIN_WIDTH = 8;
+const TRACE_ROW_RESERVED_CELLS = 7;
+const ENTRY_BODY_MAX_CHARS = 4000;
+
+interface AppProps {
   readonly store: TuiStore;
   /** Initial light/dark mode (OSC-detected by the entry); kept live thereafter. */
   readonly initialMode: ThemeMode;
@@ -45,14 +54,15 @@ function stripNotices(text: string): string {
   return text.replace(NOTICE_RE, "\n").trim();
 }
 
-const KIND_COLOR = (pal: Palette, kind: TreeRow["kind"]): string =>
-  kind === "program"
-    ? pal.program
-    : kind === "method"
-      ? pal.method
-      : kind === "turn"
-        ? pal.turn
-        : pal.scope;
+const KIND_COLOR = (pal: Palette, kind: TreeRow["kind"]): string => {
+  const byKind: Record<TreeRow["kind"], string> = {
+    program: pal.program,
+    method: pal.method,
+    turn: pal.turn,
+    scope: pal.scope,
+  };
+  return byKind[kind];
+};
 
 function ellipsize(text: string, max: number): string {
   const flat = text.replace(/\s+/g, " ").trim();
@@ -67,7 +77,8 @@ function selectRelative(
   delta: number,
 ): string | undefined {
   const index = rows.findIndex((r) => r.span === selected);
-  const next = index < 0 ? (delta > 0 ? 0 : rows.length - 1) : index + delta;
+  const wrapStart = delta > 0 ? 0 : rows.length - 1;
+  const next = index < 0 ? wrapStart : index + delta;
   return rows[Math.max(0, Math.min(rows.length - 1, next))]?.span;
 }
 
@@ -84,7 +95,7 @@ interface KeyActions {
 
 /** Key bindings: quit, clear selection, re-run, toggle system/notices, navigate. */
 function handleKey(key: { readonly name?: string; readonly ctrl?: boolean }, a: KeyActions): void {
-  const name = key.name;
+  const { name } = key;
   if (name === "q" || (key.ctrl === true && name === "c")) {
     a.renderer.destroy();
     process.exit(0);
@@ -98,14 +109,20 @@ function handleKey(key: { readonly name?: string; readonly ctrl?: boolean }, a: 
     a.setShowNotices((v) => !v);
   } else if (name === "up" || name === "k" || name === "down" || name === "j") {
     const span = selectRelative(a.rows, a.selected, name === "up" || name === "k" ? -1 : 1);
-    if (span !== undefined) a.setSelected(span);
+    if (span !== undefined) {
+      a.setSelected(span);
+    }
   }
 }
 
 /** The header status dot color + label for the run's current status. */
 function statusStyle(status: string, palette: Palette): { color: string; text: string } {
-  if (status === "error") return { color: palette.error, text: "● error" };
-  if (status === "done") return { color: palette.ok, text: "● done" };
+  if (status === "error") {
+    return { color: palette.error, text: "● error" };
+  }
+  if (status === "done") {
+    return { color: palette.ok, text: "● done" };
+  }
   return { color: palette.accent, text: "● running" };
 }
 
@@ -116,7 +133,9 @@ function stampFirstSeen(
   now: number,
 ): void {
   for (const row of rows) {
-    if (!firstSeen.has(row.span)) firstSeen.set(row.span, now);
+    if (!firstSeen.has(row.span)) {
+      firstSeen.set(row.span, now);
+    }
   }
 }
 
@@ -142,8 +161,10 @@ function computeClock(args: {
       return { text: fmtDuration(ms), span: true };
     }
   }
-  if (status === "running") return { text: fmtDuration(now - startedAt), span: false };
-  return undefined;
+  if (status === "running") {
+    return { text: fmtDuration(now - startedAt), span: false };
+  }
+  return;
 }
 
 /** Track the terminal's light/dark mode live and keep the renderer background in
@@ -158,7 +179,9 @@ function useLiveThemeMode(
   useEffect(() => {
     const sync = (): void => {
       const detected = renderer.themeMode;
-      if (detected !== null) setMode(detected);
+      if (detected !== null) {
+        setMode(detected);
+      }
     };
     sync();
     renderer.on("theme_mode", sync);
@@ -183,8 +206,10 @@ function useElapsedClock(running: boolean): {
   const startedAt = useMemo(() => Date.now(), []);
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
-    if (!running) return;
-    const id = setInterval(() => setNow(Date.now()), 250);
+    if (!running) {
+      return;
+    }
+    const id = setInterval(() => setNow(Date.now()), CLOCK_TICK_MS);
     return () => clearInterval(id);
   }, [running]);
   const firstSeen = useRef<Map<string, number>>(new Map());
@@ -197,11 +222,15 @@ function useClipboardCopy(): number | undefined {
   const [copied, setCopied] = useState<number | undefined>(undefined);
   useSelectionHandler((selection) => {
     const text = selection.getSelectedText();
-    if (copyToClipboard(text)) setCopied(text.length);
+    if (copyToClipboard(text)) {
+      setCopied(text.length);
+    }
   });
   useEffect(() => {
-    if (copied === undefined) return;
-    const handle = setTimeout(() => setCopied(undefined), 1500);
+    if (copied === undefined) {
+      return;
+    }
+    const handle = setTimeout(() => setCopied(undefined), COPIED_NOTICE_MS);
     return () => clearTimeout(handle);
   }, [copied]);
   return copied;
@@ -254,11 +283,13 @@ function useRunView(args: {
   const shown = useMemo(() => {
     let list =
       focusSpans === undefined ? transcript : transcript.filter((e) => focusSpans.has(e.span));
-    if (!showSystem) list = list.filter((e) => e.kind !== "system");
+    if (!showSystem) {
+      list = list.filter((e) => e.kind !== "system");
+    }
     return list;
   }, [transcript, focusSpans, showSystem]);
 
-  const traceWidth = Math.max(26, Math.floor(width * 0.4));
+  const traceWidth = Math.max(TRACE_PANE_MIN_WIDTH, Math.floor(width * TRACE_PANE_WIDTH_FRACTION));
   const { color: statusColor, text: statusText } = statusStyle(snapshot.status, palette);
   stampFirstSeen(rows, firstSeen, now);
   const clock = computeClock({
@@ -314,9 +345,9 @@ function AppHeader(props: HeaderProps): React.ReactNode {
       <text fg={palette.accent}>microfoom</text>
       <text fg={palette.dim}>{`  ${file}  ·  ${harness}  ·  ${model}`}</text>
       <box flexGrow={1} />
-      {clock !== undefined ? (
+      {clock === undefined ? null : (
         <text fg={clock.span ? palette.accent : palette.dim}>{`${clock.text}  `}</text>
-      ) : null}
+      )}
       <text fg={statusColor}>{statusText}</text>
     </box>
   );
@@ -336,10 +367,10 @@ function TracePane(props: TracePaneProps): React.ReactNode {
   return (
     <scrollbox
       width={traceWidth}
-      scrollY
+      scrollY={true}
       scrollAcceleration={traceAccel}
       backgroundColor={palette.panelBg}
-      border
+      border={true}
       borderColor={palette.border}
       title=" TRACE "
       titleColor={palette.dim}
@@ -374,12 +405,12 @@ function TranscriptPane(props: TranscriptPaneProps): React.ReactNode {
   return (
     <scrollbox
       flexGrow={1}
-      scrollY
+      scrollY={true}
       scrollAcceleration={transcriptAccel}
-      stickyScroll
+      stickyScroll={true}
       stickyStart="bottom"
       backgroundColor={palette.bg}
-      border
+      border={true}
       borderColor={palette.border}
       title={focused ? ` TRANSCRIPT · ${selected} ` : " TRANSCRIPT "}
       titleColor={palette.dim}
@@ -396,12 +427,12 @@ function TranscriptPane(props: TranscriptPaneProps): React.ReactNode {
       {/* Surface a run failure (bad input schema, thrown program, …) in the pane
           itself — the header alone only flips to "● error". Last child so it stays
           visible under the transcript's sticky-bottom scroll. */}
-      {error !== undefined ? (
+      {error === undefined ? null : (
         <box flexDirection="column" paddingTop={1} paddingLeft={1} paddingRight={1}>
           <text fg={palette.error}>✦ error</text>
           <text fg={palette.error}>{error}</text>
         </box>
-      ) : null}
+      )}
     </scrollbox>
   );
 }
@@ -430,13 +461,13 @@ function AppFooter(props: FooterProps): React.ReactNode {
         ↑↓ select · a all · q quit
       </text>
       <box flexGrow={1} />
-      {copied !== undefined ? <text fg={palette.ok}>{`✓ copied ${copied} chars  `}</text> : null}
+      {copied === undefined ? null : <text fg={palette.ok}>{`✓ copied ${copied} chars  `}</text>}
       <text fg={palette.dim}>{footerStats(tree)}</text>
     </box>
   );
 }
 
-export function App({
+function App({
   store,
   initialMode,
   showSystem: showSystemInit,
@@ -505,24 +536,34 @@ export function App({
 
 /** Find a span node by id in the run tree (depth-first). */
 function findNode(node: RunNode, span: string): RunNode | undefined {
-  if (node.span === span) return node;
+  if (node.span === span) {
+    return node;
+  }
   for (const child of node.children) {
     const hit = findNode(child, span);
-    if (hit !== undefined) return hit;
+    if (hit !== undefined) {
+      return hit;
+    }
   }
-  return undefined;
+  return;
 }
 
 function emptyMessage(status: "running" | "done" | "error", selected: string | undefined): string {
-  if (selected !== undefined) return `no transcript for ${selected} (e.g. a pure method or scope)`;
+  if (selected !== undefined) {
+    return `no transcript for ${selected} (e.g. a pure method or scope)`;
+  }
   return status === "running" ? "waiting for the run…" : "no transcript";
 }
 
 function footerStats(tree: ReturnType<typeof buildRunTree>): string {
   const u = tree.usage;
   const parts: string[] = [fmtTokens(u.totalTokens)];
-  if (u.costUsd !== undefined && u.costUsd > 0) parts.push(fmtCost(u.costUsd));
-  if (tree.durationMs !== undefined) parts.push(fmtDuration(tree.durationMs));
+  if (u.costUsd !== undefined && u.costUsd > 0) {
+    parts.push(fmtCost(u.costUsd));
+  }
+  if (tree.durationMs !== undefined) {
+    parts.push(fmtDuration(tree.durationMs));
+  }
   return parts.join("  ");
 }
 
@@ -540,7 +581,10 @@ function TraceRowView({ row, palette, width, selected, onSelect }: TraceRowProps
   const label = `${indent}${row.glyph} ${row.name}${row.settled ? "" : " …"}`;
   // Reserve cells for: both borders (2), horizontal padding (2), the selection
   // marker (2), a one-cell gap, and the metrics tail. The rest is the label budget.
-  const labelMax = Math.max(8, width - 7 - row.metrics.length);
+  const labelMax = Math.max(
+    TRACE_LABEL_MIN_WIDTH,
+    width - TRACE_ROW_RESERVED_CELLS - row.metrics.length,
+  );
   return (
     <box
       flexDirection="row"
@@ -623,7 +667,7 @@ function describe(
       return {
         header: entry.isError ? "✗ tool error" : "✓ tool result",
         headerColor: entry.isError ? pal.error : pal.ok,
-        body: ellipsizeBlock(entry.content, 4000),
+        body: ellipsizeBlock(entry.content, ENTRY_BODY_MAX_CHARS),
         bodyColor: entry.isError ? pal.error : pal.fg,
       };
   }
@@ -633,7 +677,7 @@ function prettyArgs(args: unknown): string {
   try {
     // The catch is the fallback: if JSON.stringify yields undefined (functions,
     // symbols), ellipsizeBlock throws and we stringify directly below.
-    return ellipsizeBlock(JSON.stringify(args, null, 2), 4000);
+    return ellipsizeBlock(JSON.stringify(args, null, 2), ENTRY_BODY_MAX_CHARS);
   } catch {
     return String(args);
   }
@@ -642,3 +686,5 @@ function prettyArgs(args: unknown): string {
 function ellipsizeBlock(text: string, max: number): string {
   return text.length > max ? `${text.slice(0, max)}\n… (${text.length - max} more chars)` : text;
 }
+
+export { App };

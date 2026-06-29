@@ -6,8 +6,11 @@
 // terminals simply ignore it.
 
 /** Write `text` to the system clipboard via OSC 52. Returns false if empty. */
+import process from "node:process";
 export function copyToClipboard(text: string): boolean {
-  if (text.length === 0) return false;
+  if (text.length === 0) {
+    return false;
+  }
   const payload = Buffer.from(text, "utf8").toString("base64");
   // ESC ] 52 ; c ; <base64> BEL
   process.stdout.write(`]52;c;${payload}`);

@@ -42,18 +42,14 @@ import {
 import { applyRename } from "./rename.js";
 import { createTurnReader, type TurnReader } from "./stream.js";
 
-// The subprocess seam is public: a caller can inject a custom launcher (tests,
-// sandboxing, a different binary path) via ClaudeCliSessionOptions.processFactory.
-export type { ClaudeProcess, ClaudeProcessFactory, ClaudeSpec } from "./process.js";
-
-export const CLAUDECLI_VERSION = "0.1.0";
+const CLAUDECLI_VERSION = "0.1.0";
 
 /** Default MCP server name → tool prefix `mcp__foom__`. */
 const DEFAULT_SERVER_NAME = "foom";
 
 /** Options for {@link createClaudeCliOpenSession} — the `claude`-CLI-backed harness. */
 
-export interface ClaudeCliSessionOptions {
+interface ClaudeCliSessionOptions {
   /**
    * Inject the per-turn subprocess launcher (tests). Default: spawn the real
    * `claude` binary. A fake can replay a scripted model against the live MCP
@@ -122,7 +118,9 @@ function resolveSessionArgs(
 async function drainTurnStream(proc: ClaudeProcess, reader: TurnReader): Promise<void> {
   for await (const line of proc.lines) {
     const trimmed = line.trim();
-    if (trimmed === "") continue;
+    if (trimmed === "") {
+      continue;
+    }
     let event: Record<string, unknown>;
     try {
       event = JSON.parse(trimmed) as Record<string, unknown>;
@@ -156,7 +154,7 @@ function resolveTurnResult(reader: TurnReader, proc: ClaudeProcess): SessionTurn
  * `harnesses`. Models resolve through Claude Code itself (`--model`); auth comes
  * from the user's logged-in CLI.
  */
-export function createClaudeCliOpenSession(options: ClaudeCliSessionOptions = {}): OpenSession {
+function createClaudeCliOpenSession(options: ClaudeCliSessionOptions = {}): OpenSession {
   const factory = options.processFactory ?? spawnClaude;
   const serverName = options.serverName ?? DEFAULT_SERVER_NAME;
   const appendSystemPrompt = options.appendSystemPrompt ?? false;
@@ -198,7 +196,7 @@ export function createClaudeCliOpenSession(options: ClaudeCliSessionOptions = {}
           resumeSessionId,
           fork,
           extraArgs: options.extraArgs,
-          ...(controls.settings !== undefined ? { settings: controls.settings } : {}),
+          ...(controls.settings === undefined ? {} : { settings: controls.settings }),
           disableSlashCommands: controls.disableSlashCommands,
           signal: request.signal,
         };
@@ -230,3 +228,9 @@ export function createClaudeCliOpenSession(options: ClaudeCliSessionOptions = {}
     return makeHarnessSession(undefined);
   };
 }
+
+// The subprocess seam is public: a caller can inject a custom launcher (tests,
+// sandboxing, a different binary path) via ClaudeCliSessionOptions.processFactory.
+export type { ClaudeProcess, ClaudeProcessFactory, ClaudeSpec } from "./process.js";
+export type { ClaudeCliSessionOptions };
+export { CLAUDECLI_VERSION, createClaudeCliOpenSession };

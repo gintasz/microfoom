@@ -7,6 +7,7 @@
 // A program with no input (e.g. `Program(z.void())`) takes no second argument.
 
 import { resolve } from "node:path";
+import process from "node:process";
 import { pathToFileURL } from "node:url";
 import { runProgram } from "@microfoom/core";
 import { createPiOpenSession } from "@microfoom/pi-adapter";

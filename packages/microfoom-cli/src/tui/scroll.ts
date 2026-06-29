@@ -7,9 +7,14 @@
 // gesture stays at the base step (precise), a fast burst ramps the multiplier up.
 
 interface ScrollAccel {
-  tick(now?: number): number;
-  reset(): void;
+  tick: (now?: number) => number;
+  reset: () => void;
 }
+
+const DEFAULT_MAX_LINES = 14;
+const DEFAULT_STREAK_WINDOW_MS = 160;
+const DEFAULT_RAMP_LENGTH = 12;
+const EASE_IN_EXPONENT = 1.5;
 
 export interface MacScrollOptions {
   /** Lines advanced for a relaxed (non-accelerating) notch. */
@@ -32,9 +37,9 @@ export class MacScrollAccel implements ScrollAccel {
 
   public constructor(options: MacScrollOptions = {}) {
     this.base = options.base ?? 2;
-    this.max = options.max ?? 14;
-    this.window = options.streakWindowMs ?? 160;
-    this.ramp = options.rampLength ?? 12;
+    this.max = options.max ?? DEFAULT_MAX_LINES;
+    this.window = options.streakWindowMs ?? DEFAULT_STREAK_WINDOW_MS;
+    this.ramp = options.rampLength ?? DEFAULT_RAMP_LENGTH;
   }
 
   public tick(now: number = Date.now()): number {
@@ -43,7 +48,7 @@ export class MacScrollAccel implements ScrollAccel {
     this.streak = dt > this.window ? 0 : Math.min(this.streak + 1, this.ramp);
     // Ease-in curve: slow start, then bend up toward `max` on sustained bursts.
     const t = this.streak / this.ramp;
-    return Math.round(this.base + (this.max - this.base) * t ** 1.5);
+    return Math.round(this.base + (this.max - this.base) * t ** EASE_IN_EXPONENT);
   }
 
   public reset(): void {

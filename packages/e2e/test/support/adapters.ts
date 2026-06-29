@@ -11,6 +11,7 @@
 // `allowedTools: []`, so the harness's own filesystem tools are never advertised
 // to the model — it cannot touch the machine, it can only speak the FOOM protocol.
 
+import process from "node:process";
 import {
   createModels,
   fauxAssistantMessage,
@@ -23,17 +24,17 @@ import { claudecliE2EAdapter } from "./claudecli.ts";
 import type { ScriptStep } from "./script.ts";
 
 /** Everything a fixture needs to run a program once. */
-export interface RunContext {
+interface RunContext {
   readonly openSession: OpenSession;
   readonly model: string;
 }
 
-export interface E2EAdapter {
+interface E2EAdapter {
   readonly name: string;
   /** Drive the real model (resolved from the host's harness config). */
   readonly live: RunContext;
   /** Drive the real adapter over a faux provider seeded with this script. */
-  scripted(steps: readonly ScriptStep[]): RunContext;
+  scripted: (steps: readonly ScriptStep[]) => RunContext;
 }
 
 // The faux provider's response list type, taken from its own API so we never name
@@ -41,7 +42,9 @@ export interface E2EAdapter {
 type FauxSteps = Parameters<ReturnType<typeof fauxProvider>["setResponses"]>[0];
 
 function toFauxStep(step: ScriptStep): FauxSteps[number] {
-  if (step.kind === "text") return fauxAssistantMessage(step.text);
+  if (step.kind === "text") {
+    return fauxAssistantMessage(step.text);
+  }
   if (step.kind === "toolCall") {
     return fauxAssistantMessage([fauxToolCall(step.name, step.args)], { stopReason: "toolUse" });
   }
@@ -57,7 +60,7 @@ function toFauxStep(step: ScriptStep): FauxSteps[number] {
 }
 
 /** The reference adapter: microfoom's pi harness. */
-export function piE2EAdapter(): E2EAdapter {
+function piE2EAdapter(): E2EAdapter {
   const liveModel = process.env["MICROFOOM_E2E_MODEL"] ?? "openrouter/deepseek/deepseek-v4-flash";
   return {
     name: "pi",
@@ -86,4 +89,7 @@ export function piE2EAdapter(): E2EAdapter {
 
 /** Every adapter the suite exercises. Append future adapters here; the fixtures
  *  never change. */
-export const adapters: readonly E2EAdapter[] = [piE2EAdapter(), claudecliE2EAdapter()];
+const adapters: readonly E2EAdapter[] = [piE2EAdapter(), claudecliE2EAdapter()];
+
+export type { E2EAdapter, RunContext };
+export { adapters, piE2EAdapter };

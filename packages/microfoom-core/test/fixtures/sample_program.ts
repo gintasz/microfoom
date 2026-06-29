@@ -18,6 +18,6 @@ export class Sample {
   }
 
   configure(options: { id: string; count: number }): void {
-    void options;
+    JSON.stringify(options);
   }
 }

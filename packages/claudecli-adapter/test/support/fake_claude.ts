@@ -9,7 +9,7 @@ import type { ClaudeProcessFactory, ClaudeSpec } from "../../src/process.ts";
 import { prefixedToolName } from "../../src/rename.ts";
 
 /** One scripted model turn-step. */
-export type FakeStep =
+type FakeStep =
   | { readonly kind: "text"; readonly text: string }
   | { readonly kind: "delayText"; readonly ms: number; readonly text: string }
   | { readonly kind: "toolCall"; readonly name: string; readonly args: Record<string, unknown> };
@@ -44,7 +44,7 @@ async function mcpCall(
  * consumes steps until it ends the turn: a text reply, or a terminal foom_return /
  * foom_throw.
  */
-export function fakeClaudeFactory(steps: readonly FakeStep[]): ClaudeProcessFactory {
+function fakeClaudeFactory(steps: readonly FakeStep[]): ClaudeProcessFactory {
   let cursor = 0;
   let rpcId = 1000;
 
@@ -54,13 +54,16 @@ export function fakeClaudeFactory(steps: readonly FakeStep[]): ClaudeProcessFact
     async function* generate(): AsyncGenerator<string> {
       yield JSON.stringify({ type: "system", subtype: "init", session_id: sessionId });
       // Exercise tools/list exactly as the real CLI does at startup.
-      await mcpCall(spec.mcpUrl, ++rpcId, "tools/list", {});
+      rpcId += 1;
+      await mcpCall(spec.mcpUrl, rpcId, "tools/list", {});
 
       let finalText = "";
       while (cursor < steps.length) {
         const step = steps[cursor];
         cursor += 1;
-        if (step === undefined) break;
+        if (step === undefined) {
+          break;
+        }
 
         if (step.kind === "text" || step.kind === "delayText") {
           if (step.kind === "delayText") {
@@ -81,7 +84,8 @@ export function fakeClaudeFactory(steps: readonly FakeStep[]): ClaudeProcessFact
         // A tool call: route it through the real MCP server, then echo the
         // assistant tool_use + the user tool_result, named as the model would see.
         const callId = `call_${cursor}`;
-        const response = await mcpCall(spec.mcpUrl, ++rpcId, "tools/call", {
+        rpcId += 1;
+        const response = await mcpCall(spec.mcpUrl, rpcId, "tools/call", {
           name: step.name,
           arguments: step.args,
         });
@@ -120,7 +124,9 @@ export function fakeClaudeFactory(steps: readonly FakeStep[]): ClaudeProcessFact
             ],
           },
         });
-        if (TERMINAL.has(step.name)) break;
+        if (TERMINAL.has(step.name)) {
+          break;
+        }
       }
 
       yield JSON.stringify({
@@ -134,6 +140,15 @@ export function fakeClaudeFactory(steps: readonly FakeStep[]): ClaudeProcessFact
       });
     }
 
-    return { lines: generate(), kill: () => {}, stderr: () => "" };
+    return {
+      lines: generate(),
+      kill: () => {
+        /* fake process: nothing to kill */
+      },
+      stderr: () => "",
+    };
   };
 }
+
+export type { FakeStep };
+export { fakeClaudeFactory };

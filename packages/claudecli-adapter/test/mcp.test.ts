@@ -20,8 +20,9 @@ describe("mcp handler (pure)", () => {
   it("lists tools by canonical name with prefix-renamed descriptions", async () => {
     const { handle } = createMcpHandler([tool({ name: "foom_throw" }), tool()], "foom");
     const res = await handle({ jsonrpc: "2.0", id: 1, method: "tools/list" });
-    const tools = (res?.["result"] as { tools: Array<{ name: string; description: string }> })
-      .tools;
+    const { tools } = res?.["result"] as {
+      tools: Array<{ name: string; description: string }>;
+    };
     expect(tools.map((t) => t.name)).toEqual(["foom_throw", "foom_return"]);
     // cross-reference in the description is rewritten to the model-visible name
     expect(tools[1]?.description).toContain("mcp__foom__foom_throw");

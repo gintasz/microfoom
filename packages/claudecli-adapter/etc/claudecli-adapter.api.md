@@ -20,10 +20,10 @@ export interface ClaudeCliSessionOptions {
 // @public
 export interface ClaudeProcess {
     // (undocumented)
-    kill(): void;
+    kill: () => void;
     // (undocumented)
     readonly lines: AsyncIterable<string>;
-    stderr(): string;
+    stderr: () => string;
 }
 
 // @public

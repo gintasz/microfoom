@@ -11,6 +11,7 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { dirname, isAbsolute, resolve } from "node:path";
+import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { type OpenSession, runProgram } from "@microfoom/core";
@@ -66,7 +67,9 @@ Output: result → stdout; run panel + summary → stderr.
 
 function parseInput(raw: string): unknown {
   const trimmed = raw.trim();
-  if (trimmed.length === 0) return "";
+  if (trimmed.length === 0) {
+    return "";
+  }
   if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
     try {
       return JSON.parse(trimmed);
@@ -84,7 +87,9 @@ function stringifyResult(result: unknown): string {
 /** Parse a tri-state list flag (--tools/--skills/--plugins): undefined → all (inherit);
  *  "" → none ([]); else comma-separated names. */
 function parseList(raw: string | undefined): readonly string[] | undefined {
-  if (raw === undefined) return undefined;
+  if (raw === undefined) {
+    return;
+  }
   return raw
     .split(",")
     .map((name) => name.trim())
@@ -106,10 +111,10 @@ function cliDefaults(
   plugins?: readonly string[];
 } {
   return {
-    ...(thinking !== undefined ? { thinking } : {}),
-    ...(tools !== undefined ? { tools } : {}),
-    ...(skills !== undefined ? { skills } : {}),
-    ...(plugins !== undefined ? { plugins } : {}),
+    ...(thinking === undefined ? {} : { thinking }),
+    ...(tools === undefined ? {} : { tools }),
+    ...(skills === undefined ? {} : { skills }),
+    ...(plugins === undefined ? {} : { plugins }),
   };
 }
 
@@ -118,9 +123,11 @@ function resolveTuiEntry(): string | undefined {
   const here = dirname(fileURLToPath(import.meta.url));
   for (const name of ["tui.tsx", "tui.js"]) {
     const candidate = resolve(here, name);
-    if (existsSync(candidate)) return candidate;
+    if (existsSync(candidate)) {
+      return candidate;
+    }
   }
-  return undefined;
+  return;
 }
 
 interface TuiArgs {
@@ -166,23 +173,45 @@ async function runTui(args: TuiArgs): Promise<number> {
     return 1;
   }
   const argv: string[] = [];
-  if (args.input !== undefined) argv.push(args.input);
-  if (args.harness !== undefined) argv.push("--harness", args.harness);
-  if (args.model !== undefined) argv.push("--model", args.model);
-  if (args.thinking !== undefined) argv.push("--thinking", args.thinking);
-  if (args.tools !== undefined) argv.push("--tools", args.tools);
-  if (args.skills !== undefined) argv.push("--skills", args.skills);
-  if (args.plugins !== undefined) argv.push("--plugins", args.plugins);
-  if (args.omitHarnessPrompt) argv.push("--omit-harness-prompt");
-  if (args.systemPrompt) argv.push("--system-prompt");
-  if (args.fullUserMsg) argv.push("--full-user-msg");
+  if (args.input !== undefined) {
+    argv.push(args.input);
+  }
+  if (args.harness !== undefined) {
+    argv.push("--harness", args.harness);
+  }
+  if (args.model !== undefined) {
+    argv.push("--model", args.model);
+  }
+  if (args.thinking !== undefined) {
+    argv.push("--thinking", args.thinking);
+  }
+  if (args.tools !== undefined) {
+    argv.push("--tools", args.tools);
+  }
+  if (args.skills !== undefined) {
+    argv.push("--skills", args.skills);
+  }
+  if (args.plugins !== undefined) {
+    argv.push("--plugins", args.plugins);
+  }
+  if (args.omitHarnessPrompt) {
+    argv.push("--omit-harness-prompt");
+  }
+  if (args.systemPrompt) {
+    argv.push("--system-prompt");
+  }
+  if (args.fullUserMsg) {
+    argv.push("--full-user-msg");
+  }
   // Theme is detected by the bun TUI itself via an OSC query (reliable in VS Code);
   // a user can still force it with MICROFOOM_TUI_THEME, which the child inherits.
   argv.unshift(args.sourceFile);
 
   for (;;) {
     const code = await spawnTui(entry, argv);
-    if (code !== RERUN_EXIT_CODE) return code;
+    if (code !== RERUN_EXIT_CODE) {
+      return code;
+    }
   }
 }
 
@@ -193,7 +222,9 @@ function openHarnessSession(
   omitHarnessPrompt: boolean,
 ): OpenSession | undefined {
   const makeHarness = HARNESSES[harnessName];
-  if (makeHarness === undefined) return undefined;
+  if (makeHarness === undefined) {
+    return;
+  }
   return harnessName === "pi"
     ? createPiOpenSession({ omitHarnessBasePrompt: omitHarnessPrompt })
     : makeHarness();
@@ -263,7 +294,7 @@ async function run(): Promise<number> {
 
   // Allow an optional leading `run` verb.
   const args = positionals[0] === "run" ? positionals.slice(1) : positionals;
-  const file = args[0];
+  const [file] = args;
   if (file === undefined) {
     process.stderr.write(HELP);
     return 1;

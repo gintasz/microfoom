@@ -13,30 +13,26 @@ import {
   type UsageAccount,
 } from "../usage.js";
 
-export type { AgentEvent, AgentTraceExporter } from "../events.js";
-export type { AgentScope } from "../program.js";
-export type { AgentUsage } from "../usage.js";
-
 declare module "../program.js" {
   interface AgentProgramContext<TProgram extends object> {
     /** Name a manual span; returns a handle whose work attributes to it. */
-    scope(name: string): AgentScope;
+    scope: (name: string) => AgentScope;
     /** Subscribe to the intrinsic event stream. */
-    onEvent(handler: (event: AgentEvent) => void): void;
+    onEvent: (handler: (event: AgentEvent) => void) => void;
     /** Pipe the event stream to an exporter (OTel / Langfuse / …). */
-    export(exporter: AgentTraceExporter): void;
+    export: (exporter: AgentTraceExporter) => void;
   }
 }
 
 /** Render one trace event as a single human-readable line (OB1). */
-export function formatEvent(event: AgentEvent): string {
+function formatEvent(event: AgentEvent): string {
   switch (event.type) {
     case "span_start":
       return `▸ ${event.name} (${event.span})`;
     case "span_end":
       return `■ ${event.span} ${event.durationMs}ms`;
     case "turn_start":
-      return `→ turn ${event.span}${event.label !== undefined ? ` "${event.label}"` : ""}`;
+      return `→ turn ${event.span}${event.label === undefined ? "" : ` "${event.label}"`}`;
     case "foom_call":
       return `· ${event.span} foom_call ${event.method}`;
     case "repair":
@@ -65,7 +61,7 @@ export function formatEvent(event: AgentEvent): string {
 }
 
 /** An exporter that prints each event via `formatEvent` to the console. */
-export const consoleExporter: AgentTraceExporter = {
+const consoleExporter: AgentTraceExporter = {
   export: (event: AgentEvent): void => {
     // biome-ignore lint/suspicious/noConsole: this exporter's sole purpose is to print trace events to the console (F8/OB1 renderer).
     console.log(formatEvent(event));
@@ -73,7 +69,7 @@ export const consoleExporter: AgentTraceExporter = {
 };
 
 /** One log line attached to a span. */
-export interface RunLog {
+interface RunLog {
   readonly message: string;
   readonly level: "info" | "warn" | "error";
 }
@@ -83,7 +79,7 @@ export interface RunLog {
  * harness panel) renders this however it likes. `usage` is rolled up: a node's
  * own measured usage (real only on turn leaves) plus all descendants'.
  */
-export interface RunNode {
+interface RunNode {
   readonly span: string;
   readonly name: string;
   readonly kind: "program" | "method" | "turn" | "scope";
@@ -156,7 +152,9 @@ function freeze(node: MutableNode): RunNode {
   const children = node.children.map(freeze);
   // Roll usage up: own (real only on turn leaves) + all descendants.
   let account = node.ownUsage;
-  for (const child of children) account = combineUsage(account, toAccount(child.usage));
+  for (const child of children) {
+    account = combineUsage(account, toAccount(child.usage));
+  }
   return {
     span: node.span,
     name: node.name,
@@ -180,14 +178,16 @@ function freeze(node: MutableNode): RunNode {
  * root (the program span) — or a synthetic `run` root if the stream has several
  * top-level spans (e.g. parent-less manual scopes).
  */
-export function buildRunTree(events: readonly AgentEvent[]): RunNode {
+function buildRunTree(events: readonly AgentEvent[]): RunNode {
   const map = new Map<string, MutableNode>();
   for (const event of events) {
     switch (event.type) {
       case "span_start": {
         const node = ensure(map, event.span);
         node.name = event.name;
-        if (event.kind !== undefined) node.kind = event.kind;
+        if (event.kind !== undefined) {
+          node.kind = event.kind;
+        }
         node.parent = event.parent;
         break;
       }
@@ -229,7 +229,9 @@ export function buildRunTree(events: readonly AgentEvent[]): RunNode {
     }
   }
 
-  if (roots.length === 1 && roots[0] !== undefined) return freeze(roots[0]);
+  if (roots.length === 1 && roots[0] !== undefined) {
+    return freeze(roots[0]);
+  }
   return freeze({
     span: "run",
     name: "run",
@@ -253,7 +255,7 @@ export function buildRunTree(events: readonly AgentEvent[]): RunNode {
  * transcript to a clicked span. Streamed prose/reasoning is coalesced: contiguous
  * deltas of the same kind within one assistant message become a single entry.
  */
-export type TranscriptEntry =
+type TranscriptEntry =
   | { readonly kind: "system"; readonly span: string; readonly text: string }
   | { readonly kind: "user"; readonly span: string; readonly text: string }
   | { readonly kind: "assistant"; readonly span: string; readonly text: string }
@@ -293,7 +295,7 @@ interface OpenText {
  *    so the thinking stays whole.
  * A change of kind, a tool call/result, or a new prompt closes that span's entry.
  */
-export function buildTranscript(events: readonly AgentEvent[]): readonly TranscriptEntry[] {
+function buildTranscript(events: readonly AgentEvent[]): readonly TranscriptEntry[] {
   const out: TranscriptEntry[] = [];
   // Per-span open streamed entry, so interleaved deltas append to the right block.
   const open = new Map<string, OpenText>();
@@ -355,3 +357,9 @@ export function buildTranscript(events: readonly AgentEvent[]): readonly Transcr
   }
   return out;
 }
+
+export type { AgentEvent, AgentTraceExporter } from "../events.js";
+export type { AgentScope } from "../program.js";
+export type { AgentUsage } from "../usage.js";
+export type { RunLog, RunNode, TranscriptEntry };
+export { buildRunTree, buildTranscript, consoleExporter, formatEvent };

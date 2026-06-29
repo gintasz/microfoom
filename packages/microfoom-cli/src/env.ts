@@ -4,6 +4,7 @@
 // disabled here (and only here) by a biome override.
 
 /** Default model id when neither a `--model` flag nor a program default is given. */
+import process from "node:process";
 export function modelFromEnv(): string | undefined {
   return process.env["MICROFOOM_MODEL"];
 }

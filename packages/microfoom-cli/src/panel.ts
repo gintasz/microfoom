@@ -10,20 +10,21 @@ import { renderRunTree } from "./render.js";
 /** A live render target for a run's event stream: feed it each `AgentEvent`
  *  via `onEvent`, then call `done()` to freeze the final frame. */
 
-export interface Panel {
+interface Panel {
   readonly onEvent: (event: AgentEvent) => void;
   /** Freeze the final frame (call once the run settles). */
   readonly done: () => void;
 }
 
 const REDRAW_MS = 60;
+const DEFAULT_PANEL_WIDTH = 80;
 
 /** Attach a live panel to a writable TTY stream (typically `process.stderr`). */
-export function attachPanel(stream: NodeJS.WriteStream): Panel {
+function attachPanel(stream: NodeJS.WriteStream): Panel {
   const log = createLogUpdate(stream);
   const events: AgentEvent[] = [];
   // Node types `columns` as `number`, but it is `undefined` for a non-TTY stream.
-  const width = (stream.columns as number | undefined) ?? 80;
+  const width = (stream.columns as number | undefined) ?? DEFAULT_PANEL_WIDTH;
   let timer: NodeJS.Timeout | undefined;
 
   const flush = (): void => {
@@ -40,9 +41,14 @@ export function attachPanel(stream: NodeJS.WriteStream): Panel {
       schedule();
     },
     done: (): void => {
-      if (timer !== undefined) clearTimeout(timer);
+      if (timer !== undefined) {
+        clearTimeout(timer);
+      }
       flush();
       log.done();
     },
   };
 }
+
+export type { Panel };
+export { attachPanel };

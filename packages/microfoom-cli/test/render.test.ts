@@ -17,7 +17,7 @@ const events: AgentEvent[] = [
   { type: "annotate", span: "t1", attributes: { routes: 3 } },
   { type: "log", span: "t1", message: "3 routes audited", level: "info" },
   { type: "span_end", span: "t1", durationMs: 2100, usage: u(2, 0.02) },
-  { type: "span_end", span: "main", durationMs: 12400, usage: u(0, 0) },
+  { type: "span_end", span: "main", durationMs: 12_400, usage: u(0, 0) },
 ];
 
 describe("renderRunTree", () => {

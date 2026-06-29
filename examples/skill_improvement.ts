@@ -12,7 +12,7 @@ export default class SkillImprovement extends Program(z.void()) {
     await this.agent.with({ label: "init-0" }).do`
         create an empty file ./SKILL-0.md
         create ./CHANGES-0.md with the text "Created empty file."`;
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 3; i += 1) {
       if (i > 0) {
         await this.agent.with({ label: `init-${i}` }).do`
                 copy file ./SKILL-${i - 1}.md to ./SKILL-${i}.md using bash`;

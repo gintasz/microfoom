@@ -28,25 +28,25 @@ interface TurnError {
 }
 
 /** What the reader distils from a turn's stream. */
-export interface TurnReader {
+interface TurnReader {
   /** Feed one decoded stream-json object. */
-  handle(event: StreamJson): void;
+  handle: (event: StreamJson) => void;
   /** The session id Claude assigned/echoed (for `--resume` continuity). */
-  sessionId(): string | undefined;
+  sessionId: () => string | undefined;
   /** True once the terminal `result` event was seen. */
-  resultSeen(): boolean;
+  resultSeen: () => boolean;
   /** A turn error if the model/CLI failed, else undefined. */
-  error(): TurnError | undefined;
+  error: () => TurnError | undefined;
   /** Final assistant prose for the turn. */
-  assistantText(): string;
+  assistantText: () => string;
   /** Accumulated usage for the turn. */
-  usage(): UsageDelta;
+  usage: () => UsageDelta;
 }
 
 const EMPTY_USAGE: UsageDelta = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
 
 /** Map a stream-json `usage` block (+ optional cost) to a microfoom UsageDelta. */
-export function usageFromResult(usageBlock: unknown, costUsd: number | undefined): UsageDelta {
+function usageFromResult(usageBlock: unknown, costUsd: number | undefined): UsageDelta {
   const usage = asObject(usageBlock) ?? {};
   const input = asNumber(usage["input_tokens"]);
   const output = asNumber(usage["output_tokens"]);
@@ -57,7 +57,7 @@ export function usageFromResult(usageBlock: unknown, costUsd: number | undefined
     outputTokens: output,
     totalTokens: input + output + cacheRead + cacheCreation,
     cachedInputTokens: cacheRead,
-    ...(costUsd !== undefined ? { costUsd } : {}),
+    ...(costUsd === undefined ? {} : { costUsd }),
   };
 }
 
@@ -83,7 +83,9 @@ function emitAssistantContent(content: unknown, emit: Emit, serverName: string):
   let text = "";
   for (const raw of asArray(content)) {
     const block = asObject(raw);
-    if (block === undefined) continue;
+    if (block === undefined) {
+      continue;
+    }
     if (block["type"] === "text") {
       const delta = asString(block["text"]) ?? "";
       text += delta;
@@ -109,13 +111,17 @@ function handleAssistant(
   emit({ type: "message_start" });
   const text = emitAssistantContent(message["content"], emit, serverName);
   emit({ type: "message_end" });
-  if (text.length > 0) state.lastAssistantText = text;
+  if (text.length > 0) {
+    state.lastAssistantText = text;
+  }
 }
 
 function handleUser(message: StreamJson, emit: Emit): void {
   for (const raw of asArray(message["content"])) {
     const block = asObject(raw);
-    if (block === undefined || block["type"] !== "tool_result") continue;
+    if (block === undefined || block["type"] !== "tool_result") {
+      continue;
+    }
     const content = asArray(block["content"])
       .map((part) => asString(asObject(part)?.["text"]) ?? "")
       .join("");
@@ -154,7 +160,7 @@ function handleResult(event: StreamJson, state: ReaderState): void {
   }
 }
 
-export function createTurnReader(
+function createTurnReader(
   serverName: string,
   onEvent: ((event: StreamEvent) => void) | undefined,
 ): TurnReader {
@@ -168,22 +174,30 @@ export function createTurnReader(
   };
 
   const emit: Emit = (event: StreamEvent): void => {
-    if (onEvent !== undefined) onEvent(event);
+    if (onEvent !== undefined) {
+      onEvent(event);
+    }
   };
 
   const handle = (event: StreamJson): void => {
     const sid = asString(event["session_id"]);
-    if (sid !== undefined) state.sessionId = sid;
+    if (sid !== undefined) {
+      state.sessionId = sid;
+    }
 
     switch (event["type"]) {
       case "assistant": {
         const message = asObject(event["message"]);
-        if (message !== undefined) handleAssistant(message, state, emit, serverName);
+        if (message !== undefined) {
+          handleAssistant(message, state, emit, serverName);
+        }
         break;
       }
       case "user": {
         const message = asObject(event["message"]);
-        if (message !== undefined) handleUser(message, emit);
+        if (message !== undefined) {
+          handleUser(message, emit);
+        }
         break;
       }
       case "rate_limit_event":
@@ -206,3 +220,6 @@ export function createTurnReader(
     usage: () => state.usage,
   };
 }
+
+export type { TurnReader };
+export { createTurnReader, usageFromResult };

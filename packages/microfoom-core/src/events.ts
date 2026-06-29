@@ -61,5 +61,5 @@ export type AgentEvent =
 
 /** An OTel-style sink: the runtime feeds it the event stream. */
 export interface AgentTraceExporter {
-  export(event: AgentEvent): void;
+  export: (event: AgentEvent) => void;
 }

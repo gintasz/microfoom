@@ -6,7 +6,9 @@ const lines = (
   reader: ReturnType<typeof createTurnReader>,
   objs: Array<Record<string, unknown>>,
 ) => {
-  for (const obj of objs) reader.handle(obj);
+  for (const obj of objs) {
+    reader.handle(obj);
+  }
 };
 
 describe("stream-json turn reader", () => {

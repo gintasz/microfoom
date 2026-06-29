@@ -28,7 +28,9 @@ function flaky(failsBefore: number): {
   const session: HarnessSession = {
     async runTurn(_request: SessionTurnRequest): Promise<SessionTurnResult> {
       attempts += 1;
-      if (attempts <= failsBefore) throw new FoomHarnessUnavailableError("transient");
+      if (attempts <= failsBefore) {
+        throw new FoomHarnessUnavailableError("transient");
+      }
       return { assistantText: "ok", usage: USAGE };
     },
   };

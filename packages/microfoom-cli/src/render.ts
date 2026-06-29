@@ -17,6 +17,8 @@ import pc from "picocolors";
 import stringWidth from "string-width";
 import { fmtCost, fmtDuration, fmtTokens } from "./format.js";
 
+const DEFAULT_RENDER_WIDTH = 80;
+
 // --- shaping: span tree → ordered rows -------------------------------------
 
 /** A span node, flattened: label/metrics precomputed, depth for indentation. */
@@ -45,16 +47,24 @@ type TraceRow = TraceSpanRow | TraceLogRow;
 function labelOf(node: RunNode): string {
   let label = node.name;
   const entries = Object.entries(node.annotations);
-  if (entries.length > 0) label += `  ${entries.map(([k, v]) => `${k}=${String(v)}`).join(" ")}`;
-  if (node.repairs > 0) label += ` ⟳${node.repairs}`;
-  if (!node.settled) label += " …";
+  if (entries.length > 0) {
+    label += `  ${entries.map(([k, v]) => `${k}=${String(v)}`).join(" ")}`;
+  }
+  if (node.repairs > 0) {
+    label += ` ⟳${node.repairs}`;
+  }
+  if (!node.settled) {
+    label += " …";
+  }
   return label;
 }
 
 function metricsOf(node: RunNode): string {
   const parts = [fmtDuration(node.durationMs), fmtTokens(node.usage.totalTokens)];
   const cost = fmtCost(node.usage.costUsd);
-  if (cost.length > 0) parts.push(cost);
+  if (cost.length > 0) {
+    parts.push(cost);
+  }
   return parts.join("  ");
 }
 
@@ -67,7 +77,9 @@ function pushNode(node: RunNode, depth: number, out: TraceRow[]): void {
     label: labelOf(node),
     metrics: metricsOf(node),
   });
-  for (const child of node.children) pushNode(child, depth + 1, out);
+  for (const child of node.children) {
+    pushNode(child, depth + 1, out);
+  }
   // Logs render after children, matching how the events landed in time.
   for (const log of node.logs) {
     out.push({ type: "log", depth, message: log.message, level: log.level });
@@ -84,7 +96,7 @@ function rowsOf(root: RunNode): TraceRow[] {
 
 /** Options controlling how a run summary is rendered to text. */
 
-export interface RenderOptions {
+interface RenderOptions {
   /** Terminal width to right-align metrics to. Default 80. */
   readonly width?: number;
   /** Emit ANSI color. Default false (so snapshots stay plain). */
@@ -115,8 +127,8 @@ function renderSpan(row: TraceSpanRow, width: number, color: boolean): string {
 }
 
 /** Render a run tree snapshot to a panel string. */
-export function renderRunTree(root: RunNode, options: RenderOptions = {}): string {
-  const width = options.width ?? 80;
+function renderRunTree(root: RunNode, options: RenderOptions = {}): string {
+  const width = options.width ?? DEFAULT_RENDER_WIDTH;
   const color = options.color ?? false;
   const out: string[] = [];
   for (const row of rowsOf(root)) {
@@ -129,3 +141,6 @@ export function renderRunTree(root: RunNode, options: RenderOptions = {}): strin
   }
   return out.join("\n");
 }
+
+export type { RenderOptions };
+export { renderRunTree };

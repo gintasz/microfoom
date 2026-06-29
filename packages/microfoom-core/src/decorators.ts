@@ -9,19 +9,19 @@ import type { AgentExposeOptions, AgentOptions, AgentToolOptions } from "./optio
 import { classMetaForCtor, type ExposeMeta, type ExposureTier, methodMetaFor } from "./registry.js";
 
 /** A decorator usable on a class. */
-export type AgentClassDecorator = <T extends abstract new (...args: never[]) => object>(
+type AgentClassDecorator = <T extends abstract new (...args: never[]) => object>(
   value: T,
   context: ClassDecoratorContext<T>,
 ) => T | undefined;
 
 /** A decorator usable on a method. */
-export type AgentMethodDecorator = <This, Args extends readonly unknown[], Return>(
+type AgentMethodDecorator = <This, Args extends readonly unknown[], Return>(
   value: (this: This, ...args: Args) => Return,
   context: ClassMethodDecoratorContext<This, (this: This, ...args: Args) => Return>,
 ) => ((this: This, ...args: Args) => Return) | undefined;
 
 /** Usable on either a class or a method. */
-export type AgentDecorator = AgentClassDecorator & AgentMethodDecorator;
+type AgentDecorator = AgentClassDecorator & AgentMethodDecorator;
 
 /**
  * `@foom.config(options)` — set agent config on a class or a method. On a class
@@ -36,7 +36,7 @@ export type AgentDecorator = AgentClassDecorator & AgentMethodDecorator;
  * }
  * ```
  */
-export type AgentConfigDecorator = (options: AgentOptions) => AgentDecorator;
+type AgentConfigDecorator = (options: AgentOptions) => AgentDecorator;
 
 /**
  * `@foom.expose` (bare) or `@foom.expose(options)` — make a method agent-callable
@@ -56,11 +56,11 @@ export type AgentConfigDecorator = (options: AgentOptions) => AgentDecorator;
  * async randomInt(min: number, max: number): Promise<number> { ... }
  * ```
  */
-export type AgentExposeDecorator = AgentMethodDecorator &
+type AgentExposeDecorator = AgentMethodDecorator &
   ((options?: AgentExposeOptions) => AgentMethodDecorator);
 
 /** The module-level decorator namespace. */
-export interface AgentDecorators {
+interface AgentDecorators {
   readonly config: AgentConfigDecorator;
   readonly expose: AgentExposeDecorator;
 }
@@ -108,8 +108,12 @@ function buildExposeMeta(
     dispatchName: name,
     tier,
   };
-  if (options?.announcement !== undefined) meta.announcement = options.announcement;
-  if (options?.tool !== undefined) meta.tool = options.tool;
+  if (options?.announcement !== undefined) {
+    meta.announcement = options.announcement;
+  }
+  if (options?.tool !== undefined) {
+    meta.tool = options.tool;
+  }
   return meta;
 }
 
@@ -120,12 +124,12 @@ function applyExpose(options: AgentExposeOptions | undefined, context: AnyDecora
   if (context.private) {
     throw new FoomConfigError("Private (#) members can never be exposed to the agent (F3).");
   }
-  const tier: ExposureTier =
-    options?.tool !== undefined
-      ? "tool"
-      : options?.announcement !== undefined
-        ? "announcement"
-        : "silent";
+  let tier: ExposureTier = "silent";
+  if (options?.tool !== undefined) {
+    tier = "tool";
+  } else if (options?.announcement !== undefined) {
+    tier = "announcement";
+  }
   const name = String(context.name);
   const meta = buildExposeMeta(name, tier, options);
   context.addInitializer(function (this: unknown) {
@@ -173,7 +177,17 @@ function expose(
  * }
  * ```
  */
-export const foom: AgentDecorators = {
+const foom: AgentDecorators = {
   config: (options: AgentOptions) => makeConfig(options),
   expose: expose as unknown as AgentExposeDecorator,
 };
+
+export type {
+  AgentClassDecorator,
+  AgentConfigDecorator,
+  AgentDecorator,
+  AgentDecorators,
+  AgentExposeDecorator,
+  AgentMethodDecorator,
+};
+export { foom };

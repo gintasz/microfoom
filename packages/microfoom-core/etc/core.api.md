@@ -139,11 +139,11 @@ export interface AgentProgramContext<TProgram extends object> extends AgentRun {
     // (undocumented)
     readonly program: TProgram;
     // (undocumented)
-    session(options?: AgentOptions): AgentSession;
+    session: (options?: AgentOptions) => AgentSession;
     // (undocumented)
     readonly usage: AgentUsage;
     // (undocumented)
-    with(options: AgentOptions): AgentProgramContext<TProgram>;
+    with: (options: AgentOptions) => AgentProgramContext<TProgram>;
 }
 
 // @public
@@ -152,7 +152,7 @@ export type AgentProseTemplate = (strings: TemplateStringsArray, ...values: unkn
 // @public
 export interface AgentResult<T> extends PromiseLike<T> {
     // (undocumented)
-    abort(reason?: unknown): void;
+    abort: (reason?: unknown) => void;
     // (undocumented)
     readonly usage: AgentUsage;
 }
@@ -173,11 +173,11 @@ export interface AgentRunHooks {
 // @public
 export interface AgentSession extends AgentRun {
     // (undocumented)
-    fork(): AgentSession;
+    fork: () => AgentSession;
     // (undocumented)
     readonly usage: AgentUsage;
     // (undocumented)
-    with(options: AgentOptions): AgentSession;
+    with: (options: AgentOptions) => AgentSession;
 }
 
 // @public
@@ -366,10 +366,10 @@ export class FoomTokenLimitExceededError extends FoomError {
 
 // @public
 export interface HarnessSession {
-    fork?(): HarnessSession;
+    fork?: () => HarnessSession;
     // (undocumented)
-    runTurn(request: SessionTurnRequest): Promise<SessionTurnResult>;
-    systemPrompt?(programPrompt: string): string;
+    runTurn: (request: SessionTurnRequest) => Promise<SessionTurnResult>;
+    systemPrompt?: (programPrompt: string) => string;
 }
 
 // @public

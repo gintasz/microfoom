@@ -135,7 +135,9 @@ describe("claudecli adapter via fake claude (offline)", () => {
       model,
       defaults: { tools: [] },
       onEvent: (event) => {
-        if (event.type === "span_end") totalTokens += event.usage.totalTokens;
+        if (event.type === "span_end") {
+          totalTokens += event.usage.totalTokens;
+        }
       },
     });
     expect(out).toBe(7);

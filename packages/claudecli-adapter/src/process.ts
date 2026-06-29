@@ -5,12 +5,13 @@
 // argv mapping aside — runs offline and deterministically.
 
 import { type ChildProcessByStdio, spawn } from "node:child_process";
+import process from "node:process";
 import { createInterface } from "node:readline";
 import type { Readable } from "node:stream";
 import { prefixedToolName } from "./rename.js";
 
 /** Everything one turn's subprocess needs. Harness-neutral; argv is built here. */
-export interface ClaudeSpec {
+interface ClaudeSpec {
   readonly model: string;
   readonly systemPrompt: string;
   readonly prompt: string;
@@ -45,21 +46,21 @@ export interface ClaudeSpec {
 }
 
 /** A running turn: its stdout lines, a kill switch, and any stderr seen. */
-export interface ClaudeProcess {
+interface ClaudeProcess {
   readonly lines: AsyncIterable<string>;
-  kill(): void;
+  kill: () => void;
   /** Collected stderr (+ spawn error), available once `lines` is exhausted. */
-  stderr(): string;
+  stderr: () => string;
 }
 
 /** Injected per-turn subprocess launcher. */
-export type ClaudeProcessFactory = (spec: ClaudeSpec) => ClaudeProcess;
+type ClaudeProcessFactory = (spec: ClaudeSpec) => ClaudeProcess;
 
 /** The Claude Code valid `--effort` levels; anything else is dropped. */
 const EFFORT_LEVELS: ReadonlySet<string> = new Set(["low", "medium", "high", "xhigh", "max"]);
 
 /** Build the full `claude` argv (the binary itself excluded) for one turn. */
-export function buildArgs(spec: ClaudeSpec): string[] {
+function buildArgs(spec: ClaudeSpec): string[] {
   const mcpConfig = JSON.stringify({
     mcpServers: { [spec.serverName]: { type: "http", url: spec.mcpUrl } },
   });
@@ -109,12 +110,16 @@ export function buildArgs(spec: ClaudeSpec): string[] {
 
   if (spec.resumeSessionId !== undefined) {
     args.push("--resume", spec.resumeSessionId);
-    if (spec.fork === true) args.push("--fork-session");
+    if (spec.fork === true) {
+      args.push("--fork-session");
+    }
   } else if (spec.sessionId !== undefined) {
     args.push("--session-id", spec.sessionId);
   }
 
-  if (spec.extraArgs !== undefined) args.push(...spec.extraArgs);
+  if (spec.extraArgs !== undefined) {
+    args.push(...spec.extraArgs);
+  }
 
   // Prompt last, as the positional argument.
   args.push(spec.prompt);
@@ -122,7 +127,7 @@ export function buildArgs(spec: ClaudeSpec): string[] {
 }
 
 /** The default factory: spawn the real `claude` binary. */
-export function spawnClaude(spec: ClaudeSpec): ClaudeProcess {
+function spawnClaude(spec: ClaudeSpec): ClaudeProcess {
   let child: ChildProcessByStdio<null, Readable, Readable>;
   let stderr = "";
   try {
@@ -134,15 +139,19 @@ export function spawnClaude(spec: ClaudeSpec): ClaudeProcess {
       // round-trip. Honour an explicit override from the environment.
       // biome-ignore lint/style/noProcessEnv: the child must inherit the full parent environment (model auth, PATH, …); forwarding raw process.env is the intent, not a config read to route through env.ts.
       env: { ...process.env, ENABLE_TOOL_SEARCH: process.env["ENABLE_TOOL_SEARCH"] ?? "false" },
-      ...(spec.signal !== undefined ? { signal: spec.signal } : {}),
+      ...(spec.signal === undefined ? {} : { signal: spec.signal }),
     });
   } catch (error) {
     // Synchronous spawn failure (e.g. binary missing): present an empty line
     // stream so the caller surfaces it as an unavailable harness.
     const message = String(error);
     return {
-      lines: (async function* () {})(),
-      kill: () => {},
+      lines: (async function* () {
+        /* spawn failed: emit no lines */
+      })(),
+      kill: () => {
+        /* nothing to kill: process never spawned */
+      },
       stderr: () => message,
     };
   }
@@ -160,3 +169,6 @@ export function spawnClaude(spec: ClaudeSpec): ClaudeProcess {
     stderr: () => stderr,
   };
 }
+
+export type { ClaudeProcess, ClaudeProcessFactory, ClaudeSpec };
+export { buildArgs, spawnClaude };

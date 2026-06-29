@@ -13,7 +13,7 @@ import type { JsonSchema } from "./session.js";
 import { makeStandardSchema } from "./standard_schema.js";
 
 /** The derived parameter schema for one method. */
-export interface DerivedParameters {
+interface DerivedParameters {
   /** JSON Schema of the arguments object (advertised to the model). */
   readonly jsonSchema: JsonSchema;
   /** Standard Schema validating a raw arguments object (F4). */
@@ -36,14 +36,14 @@ interface ParamSpec {
 const anyShape: TypeShape = { json: {}, check: () => true };
 
 function arrayElementType(type: ts.Type, checker: ts.TypeChecker): ts.Type | undefined {
-  const objectFlags = (type as ts.ObjectType).objectFlags;
+  const { objectFlags } = type as ts.ObjectType;
   if ((type.flags & ts.TypeFlags.Object) !== 0 && (objectFlags & ts.ObjectFlags.Reference) !== 0) {
     const reference = type as ts.TypeReference;
     if (reference.target.symbol.getName() === "Array") {
       return checker.getTypeArguments(reference)[0];
     }
   }
-  return undefined;
+  return;
 }
 
 /** Shape for a union: an `enum` when every member is a string/number literal,
@@ -62,7 +62,9 @@ function unionShape(type: ts.UnionType, checker: ts.TypeChecker): TypeShape {
  *  back to the open `anyShape`. */
 function objectShape(type: ts.Type, checker: ts.TypeChecker): TypeShape | undefined {
   const properties = type.getProperties();
-  if (properties.length === 0) return undefined;
+  if (properties.length === 0) {
+    return;
+  }
   const props: Record<string, JsonSchema> = {};
   const required: string[] = [];
   const checks: Array<{ name: string; optional: boolean; check: (v: unknown) => boolean }> = [];
@@ -74,13 +76,17 @@ function objectShape(type: ts.Type, checker: ts.TypeChecker): TypeShape | undefi
     const shape = typeToShape(propType, checker);
     const optional = (prop.flags & ts.SymbolFlags.Optional) !== 0;
     props[prop.getName()] = shape.json;
-    if (!optional) required.push(prop.getName());
+    if (!optional) {
+      required.push(prop.getName());
+    }
     checks.push({ name: prop.getName(), optional, check: shape.check });
   }
   return {
     json: { type: "object", properties: props, required, additionalProperties: false },
     check: (v: unknown): boolean => {
-      if (typeof v !== "object" || v === null) return false;
+      if (typeof v !== "object" || v === null) {
+        return false;
+      }
       const record = v as Record<string, unknown>;
       return checks.every((entry) =>
         entry.name in record ? entry.check(record[entry.name]) : entry.optional,
@@ -90,13 +96,13 @@ function objectShape(type: ts.Type, checker: ts.TypeChecker): TypeShape | undefi
 }
 
 function typeToShape(type: ts.Type, checker: ts.TypeChecker): TypeShape {
-  const flags = type.flags;
+  const { flags } = type;
   if (flags & ts.TypeFlags.StringLiteral) {
-    const value = (type as ts.StringLiteralType).value;
+    const { value } = type as ts.StringLiteralType;
     return { json: { const: value }, check: (v: unknown): boolean => v === value };
   }
   if (flags & ts.TypeFlags.NumberLiteral) {
-    const value = (type as ts.NumberLiteralType).value;
+    const { value } = type as ts.NumberLiteralType;
     return { json: { const: value }, check: (v: unknown): boolean => v === value };
   }
   if (flags & (ts.TypeFlags.String | ts.TypeFlags.TemplateLiteral)) {
@@ -108,7 +114,9 @@ function typeToShape(type: ts.Type, checker: ts.TypeChecker): TypeShape {
   if (flags & (ts.TypeFlags.Boolean | ts.TypeFlags.BooleanLiteral)) {
     return { json: { type: "boolean" }, check: (v: unknown): boolean => typeof v === "boolean" };
   }
-  if (type.isUnion()) return unionShape(type, checker);
+  if (type.isUnion()) {
+    return unionShape(type, checker);
+  }
   const element = arrayElementType(type, checker);
   if (element !== undefined) {
     const item = typeToShape(element, checker);
@@ -119,7 +127,9 @@ function typeToShape(type: ts.Type, checker: ts.TypeChecker): TypeShape {
   }
   if (flags & ts.TypeFlags.Object) {
     const shape = objectShape(type, checker);
-    if (shape !== undefined) return shape;
+    if (shape !== undefined) {
+      return shape;
+    }
   }
   return anyShape;
 }
@@ -225,7 +235,9 @@ function buildDerived(
   const required: string[] = [];
   for (const spec of specs) {
     properties[spec.name] = spec.shape.json;
-    if (!spec.optional) required.push(spec.name);
+    if (!spec.optional) {
+      required.push(spec.name);
+    }
   }
   const jsonSchema: JsonSchema = {
     type: "object",
@@ -247,7 +259,7 @@ function buildDerived(
 }
 
 /** Derive the parameter schema of `className.methodName` declared in `filePath`. */
-export function deriveMethodParameters(
+function deriveMethodParameters(
   filePath: string,
   className: string,
   methodName: string,
@@ -265,7 +277,7 @@ export function deriveMethodParameters(
  * (named or anonymous). Used to advertise a program as an agent tool: the result
  * is an object schema keyed by main's single parameter name.
  */
-export function deriveProgramInput(filePath: string): DerivedParameters {
+function deriveProgramInput(filePath: string): DerivedParameters {
   const { checker, source } = compileSource(filePath);
   const method = findDefaultExportMain(source);
   if (method === undefined) {
@@ -275,3 +287,6 @@ export function deriveProgramInput(filePath: string): DerivedParameters {
   }
   return buildDerived(method, checker, source);
 }
+
+export type { DerivedParameters };
+export { deriveMethodParameters, deriveProgramInput };

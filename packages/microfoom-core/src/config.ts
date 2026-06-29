@@ -8,20 +8,20 @@
 // at runtime setup, through the typed error channel — not in this module.
 
 /** A wall-clock duration literal: seconds, minutes, or hours. */
-export type Duration = `${number}s` | `${number}m` | `${number}h`;
+type Duration = `${number}s` | `${number}m` | `${number}h`;
 
 /** Reasoning effort. Known levels plus provider-passthrough raw strings. */
-export type ThinkingLevel = "low" | "medium" | "high" | (string & {});
+type ThinkingLevel = "low" | "medium" | "high" | (string & {});
 
 /**
  * System-prompt contribution for one scope. Exactly one of `append` / `replace`:
  * `append` accumulates onto the inherited prompt; `replace` discards everything
  * from wider scopes and becomes the new base.
  */
-export type SystemPrompt = { append: string } | { replace: string };
+type SystemPrompt = { append: string } | { replace: string };
 
 /** Scoped agent configuration. Every field optional; absence means "inherit". */
-export interface AgentConfig {
+interface AgentConfig {
   // --- override: closest scope wins ---
   /**
    * Model id the agent runs on, as `"provider/id"` (e.g.
@@ -96,7 +96,7 @@ export interface AgentConfig {
   maxTurnDuration?: Duration;
 }
 
-const DURATION_UNIT_MS = { s: 1_000, m: 60_000, h: 3_600_000 } as const;
+const DURATION_UNIT_MS = { s: 1000, m: 60_000, h: 3_600_000 } as const;
 const DURATION_PATTERN = /^(\d+(?:\.\d+)?)(s|m|h)$/;
 
 /**
@@ -104,11 +104,15 @@ const DURATION_PATTERN = /^(\d+(?:\.\d+)?)(s|m|h)$/;
  * string so callers can reject it through the typed error channel rather than
  * trusting a silent NaN.
  */
-export function durationToMs(duration: Duration): number | undefined {
+function durationToMs(duration: Duration): number | undefined {
   const match = DURATION_PATTERN.exec(duration);
-  if (!match) return undefined;
+  if (!match) {
+    return;
+  }
   const [, value, unit] = match;
-  if (value === undefined || unit === undefined) return undefined;
+  if (value === undefined || unit === undefined) {
+    return;
+  }
   return Number(value) * DURATION_UNIT_MS[unit as keyof typeof DURATION_UNIT_MS];
 }
 
@@ -121,16 +125,38 @@ export function durationToMs(duration: Duration): number | undefined {
 function minDuration(wider: Duration, narrower: Duration): Duration {
   const a = durationToMs(wider);
   const b = durationToMs(narrower);
-  if (a === undefined) return narrower;
-  if (b === undefined) return wider;
-  if (b < a) return narrower;
-  if (a < b) return wider;
+  if (a === undefined) {
+    return narrower;
+  }
+  if (b === undefined) {
+    return wider;
+  }
+  if (b < a) {
+    return narrower;
+  }
+  if (a < b) {
+    return wider;
+  }
   return wider <= narrower ? wider : narrower;
 }
 
 /** The tighter (smaller) of two numeric caps. */
 function minCap(wider: number, narrower: number): number {
   return Math.min(wider, narrower);
+}
+
+/** Tightening duration-cap merge: defined-and-tighter wins; undefined inherits. */
+function mergeDuration(
+  wider: Duration | undefined,
+  narrower: Duration | undefined,
+): Duration | undefined {
+  if (wider === undefined) {
+    return narrower;
+  }
+  if (narrower === undefined) {
+    return wider;
+  }
+  return minDuration(wider, narrower);
 }
 
 /** narrower wins when present; otherwise inherit the wider value. */
@@ -140,8 +166,12 @@ function override<T>(wider: T | undefined, narrower: T | undefined): T | undefin
 
 /** Tightening cap merge: defined-and-tighter wins; undefined inherits. */
 function mergeCap(wider: number | undefined, narrower: number | undefined): number | undefined {
-  if (wider === undefined) return narrower;
-  if (narrower === undefined) return wider;
+  if (wider === undefined) {
+    return narrower;
+  }
+  if (narrower === undefined) {
+    return wider;
+  }
   return minCap(wider, narrower);
 }
 
@@ -154,11 +184,19 @@ function mergeSystemPrompt(
   wider: SystemPrompt | undefined,
   narrower: SystemPrompt | undefined,
 ): SystemPrompt | undefined {
-  if (narrower === undefined) return wider;
-  if ("replace" in narrower) return narrower;
+  if (narrower === undefined) {
+    return wider;
+  }
+  if ("replace" in narrower) {
+    return narrower;
+  }
   // narrower is an append.
-  if (wider === undefined) return narrower;
-  if ("replace" in wider) return { replace: `${wider.replace}\n${narrower.append}` };
+  if (wider === undefined) {
+    return narrower;
+  }
+  if ("replace" in wider) {
+    return { replace: `${wider.replace}\n${narrower.append}` };
+  }
   return { append: `${wider.append}\n${narrower.append}` };
 }
 
@@ -168,21 +206,48 @@ type LooseConfig = { [K in keyof AgentConfig]-?: AgentConfig[K] | undefined };
 /** Build an object with only the defined fields (respects exactOptionalPropertyTypes). */
 function compact(config: LooseConfig): AgentConfig {
   const out: AgentConfig = {};
-  if (config.model !== undefined) out.model = config.model;
-  if (config.harness !== undefined) out.harness = config.harness;
-  if (config.tools !== undefined) out.tools = config.tools;
-  if (config.skills !== undefined) out.skills = config.skills;
-  if (config.plugins !== undefined) out.plugins = config.plugins;
-  if (config.omitHarnessBasePrompt !== undefined)
+  if (config.model !== undefined) {
+    out.model = config.model;
+  }
+  if (config.harness !== undefined) {
+    out.harness = config.harness;
+  }
+  if (config.tools !== undefined) {
+    out.tools = config.tools;
+  }
+  if (config.skills !== undefined) {
+    out.skills = config.skills;
+  }
+  if (config.plugins !== undefined) {
+    out.plugins = config.plugins;
+  }
+  if (config.omitHarnessBasePrompt !== undefined) {
     out.omitHarnessBasePrompt = config.omitHarnessBasePrompt;
-  if (config.thinking !== undefined) out.thinking = config.thinking;
-  if (config.retries !== undefined) out.retries = config.retries;
-  if (config.repairAttempts !== undefined) out.repairAttempts = config.repairAttempts;
-  if (config.systemPrompt !== undefined) out.systemPrompt = config.systemPrompt;
-  if (config.maxBudgetUsd !== undefined) out.maxBudgetUsd = config.maxBudgetUsd;
-  if (config.maxOutputTokens !== undefined) out.maxOutputTokens = config.maxOutputTokens;
-  if (config.maxCallDepth !== undefined) out.maxCallDepth = config.maxCallDepth;
-  if (config.maxTurnDuration !== undefined) out.maxTurnDuration = config.maxTurnDuration;
+  }
+  if (config.thinking !== undefined) {
+    out.thinking = config.thinking;
+  }
+  if (config.retries !== undefined) {
+    out.retries = config.retries;
+  }
+  if (config.repairAttempts !== undefined) {
+    out.repairAttempts = config.repairAttempts;
+  }
+  if (config.systemPrompt !== undefined) {
+    out.systemPrompt = config.systemPrompt;
+  }
+  if (config.maxBudgetUsd !== undefined) {
+    out.maxBudgetUsd = config.maxBudgetUsd;
+  }
+  if (config.maxOutputTokens !== undefined) {
+    out.maxOutputTokens = config.maxOutputTokens;
+  }
+  if (config.maxCallDepth !== undefined) {
+    out.maxCallDepth = config.maxCallDepth;
+  }
+  if (config.maxTurnDuration !== undefined) {
+    out.maxTurnDuration = config.maxTurnDuration;
+  }
   return out;
 }
 
@@ -190,7 +255,7 @@ function compact(config: LooseConfig): AgentConfig {
  * Merge a wider scope's config with a narrower one. Associative, so folding a
  * chain in either grouping yields the same result (Q6). Pure and total.
  */
-export function mergeConfig(wider: AgentConfig, narrower: AgentConfig): AgentConfig {
+function mergeConfig(wider: AgentConfig, narrower: AgentConfig): AgentConfig {
   const merged: LooseConfig = {
     model: override(wider.model, narrower.model),
     harness: override(wider.harness, narrower.harness),
@@ -205,17 +270,15 @@ export function mergeConfig(wider: AgentConfig, narrower: AgentConfig): AgentCon
     maxBudgetUsd: mergeCap(wider.maxBudgetUsd, narrower.maxBudgetUsd),
     maxOutputTokens: mergeCap(wider.maxOutputTokens, narrower.maxOutputTokens),
     maxCallDepth: mergeCap(wider.maxCallDepth, narrower.maxCallDepth),
-    maxTurnDuration:
-      wider.maxTurnDuration === undefined
-        ? narrower.maxTurnDuration
-        : narrower.maxTurnDuration === undefined
-          ? wider.maxTurnDuration
-          : minDuration(wider.maxTurnDuration, narrower.maxTurnDuration),
+    maxTurnDuration: mergeDuration(wider.maxTurnDuration, narrower.maxTurnDuration),
   };
   return compact(merged);
 }
 
 /** Fold a widest-to-narrowest chain of scopes into one effective config. */
-export function mergeConfigChain(scopes: readonly AgentConfig[]): AgentConfig {
+function mergeConfigChain(scopes: readonly AgentConfig[]): AgentConfig {
   return scopes.reduce<AgentConfig>((acc, scope) => mergeConfig(acc, scope), {});
 }
+
+export type { AgentConfig, Duration, SystemPrompt, ThinkingLevel };
+export { durationToMs, mergeConfig, mergeConfigChain };

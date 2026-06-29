@@ -12,13 +12,13 @@ function mcpPrefix(serverName: string): string {
 }
 
 /** The model-visible name of a canonical tool once Claude Code namespaces it. */
-export function prefixedToolName(serverName: string, toolName: string): string {
+function prefixedToolName(serverName: string, toolName: string): string {
   return `${mcpPrefix(serverName)}${toolName}`;
 }
 
 /** Strip the `mcp__<server>__` prefix back to the canonical name (no-op for a
  *  built-in tool that was never namespaced). */
-export function stripPrefix(serverName: string, name: string): string {
+function stripPrefix(serverName: string, name: string): string {
   const prefix = mcpPrefix(serverName);
   return name.startsWith(prefix) ? name.slice(prefix.length) : name;
 }
@@ -32,11 +32,7 @@ const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\
  * again (the preceding `_` blocks the boundary), so the rewrite is idempotent.
  * Names are sorted longest-first so no name can partially match inside another.
  */
-export function applyRename(
-  text: string,
-  toolNames: readonly string[],
-  serverName: string,
-): string {
+function applyRename(text: string, toolNames: readonly string[], serverName: string): string {
   let out = text;
   for (const name of [...toolNames].sort((a, b) => b.length - a.length)) {
     const pattern = new RegExp(`\\b${escapeRegExp(name)}\\b`, "g");
@@ -44,3 +40,5 @@ export function applyRename(
   }
   return out;
 }
+
+export { applyRename, prefixedToolName, stripPrefix };

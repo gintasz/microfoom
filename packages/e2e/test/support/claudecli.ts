@@ -6,6 +6,7 @@
 // the harness sends only microfoom's prompt (default replace mode) and every run
 // passes `allowedTools: []`, so Claude's own filesystem tools are never advertised.
 
+import process from "node:process";
 import {
   type ClaudeProcessFactory,
   type ClaudeSpec,
@@ -43,13 +44,16 @@ function scriptedFactory(steps: readonly ScriptStep[]): ClaudeProcessFactory {
 
     async function* generate(): AsyncGenerator<string> {
       yield JSON.stringify({ type: "system", subtype: "init", session_id: sessionId });
-      await mcpCall(spec.mcpUrl, ++rpcId, "tools/list", {});
+      rpcId += 1;
+      await mcpCall(spec.mcpUrl, rpcId, "tools/list", {});
 
       let finalText = "";
       while (cursor < steps.length) {
         const step = steps[cursor];
         cursor += 1;
-        if (step === undefined) break;
+        if (step === undefined) {
+          break;
+        }
 
         if (step.kind === "text" || step.kind === "delayText") {
           if (step.kind === "delayText") {
@@ -68,7 +72,8 @@ function scriptedFactory(steps: readonly ScriptStep[]): ClaudeProcessFactory {
         }
 
         const callId = `call_${cursor}`;
-        const response = await mcpCall(spec.mcpUrl, ++rpcId, "tools/call", {
+        rpcId += 1;
+        const response = await mcpCall(spec.mcpUrl, rpcId, "tools/call", {
           name: step.name,
           arguments: step.args,
         });
@@ -102,7 +107,9 @@ function scriptedFactory(steps: readonly ScriptStep[]): ClaudeProcessFactory {
             ],
           },
         });
-        if (TERMINAL.has(step.name)) break;
+        if (TERMINAL.has(step.name)) {
+          break;
+        }
       }
 
       yield JSON.stringify({
@@ -116,7 +123,13 @@ function scriptedFactory(steps: readonly ScriptStep[]): ClaudeProcessFactory {
       });
     }
 
-    return { lines: generate(), kill: () => {}, stderr: () => "" };
+    return {
+      lines: generate(),
+      kill: () => {
+        /* scripted process: nothing to kill */
+      },
+      stderr: () => "",
+    };
   };
 }
 

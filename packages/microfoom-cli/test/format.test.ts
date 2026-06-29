@@ -6,8 +6,8 @@ describe("format", () => {
     expect(fmtDuration(undefined)).toBe("—");
     expect(fmtDuration(400)).toBe("<1s");
     expect(fmtDuration(820)).toBe("1s");
-    expect(fmtDuration(12400)).toBe("12s");
-    expect(fmtDuration(90000)).toBe("1m 30s");
+    expect(fmtDuration(12_400)).toBe("12s");
+    expect(fmtDuration(90_000)).toBe("1m 30s");
     expect(fmtDuration(3_675_000)).toBe("1h 01m");
   });
 
@@ -36,7 +36,7 @@ describe("format", () => {
           calls: 2,
           maxCallDepth: 0,
         },
-        12400,
+        12_400,
       ),
     ).toBe("12s  10tok  $0.21  2 calls");
     expect(

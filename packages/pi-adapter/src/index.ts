@@ -16,6 +16,7 @@
 
 import { appendFileSync, mkdirSync } from "node:fs";
 import { basename, dirname } from "node:path";
+import process from "node:process";
 import {
   Agent,
   type AgentMessage,
@@ -62,7 +63,10 @@ import { Type } from "typebox";
 import { dumpPayloadFile, logFileFromEnv } from "./env.js";
 
 /** The version of `@microfoom/pi-adapter` this build was published at. */
-export const PI_VERSION = "0.1.0";
+const PI_VERSION = "0.1.0";
+
+/** Trailing file extension (e.g. `.js`), stripped to derive a plugin's basename. */
+const FILE_EXTENSION_RE = /\.[^.]+$/;
 
 const PI_THINKING: ReadonlySet<string> = new Set([
   "off",
@@ -79,7 +83,9 @@ const PI_THINKING: ReadonlySet<string> = new Set([
 // into the one model-native field this layer has: the description.
 function toolDescription(tool: NeutralToolDef): string {
   const parts = [tool.description];
-  if (tool.promptSnippet !== undefined) parts.push(tool.promptSnippet);
+  if (tool.promptSnippet !== undefined) {
+    parts.push(tool.promptSnippet);
+  }
   if (tool.promptGuidelines !== undefined && tool.promptGuidelines.length > 0) {
     parts.push(["Guidelines:", ...tool.promptGuidelines.map((rule) => `- ${rule}`)].join("\n"));
   }
@@ -102,7 +108,9 @@ function toAgentTool(tool: NeutralToolDef): AgentTool {
   };
 }
 
-const truncate = (text: string): string => (text.length > 500 ? `${text.slice(0, 500)}…` : text);
+const MAX_LOGGED_TEXT_LENGTH = 500;
+const truncate = (text: string): string =>
+  text.length > MAX_LOGGED_TEXT_LENGTH ? `${text.slice(0, MAX_LOGGED_TEXT_LENGTH)}…` : text;
 
 /**
  * Append a structured JSONL record of one model turn (prompt, advertised tools,
@@ -117,20 +125,24 @@ function logTurn(
   newMessages: readonly AgentMessage[],
   tools: readonly AgentTool[],
 ): void {
-  if (logFile === undefined) return;
+  if (logFile === undefined) {
+    return;
+  }
   const messages = newMessages.map((message) => {
     if (message.role === "assistant") {
       return {
         role: "assistant",
         stopReason: message.stopReason,
         errorMessage: message.errorMessage,
-        content: message.content.map((part) =>
-          part.type === "text"
-            ? { text: truncate(part.text) }
-            : part.type === "toolCall"
-              ? { toolCall: { name: part.name, arguments: part.arguments } }
-              : { thinking: true },
-        ),
+        content: message.content.map((part) => {
+          if (part.type === "text") {
+            return { text: truncate(part.text) };
+          }
+          if (part.type === "toolCall") {
+            return { toolCall: { name: part.name, arguments: part.arguments } };
+          }
+          return { thinking: true };
+        }),
       };
     }
     if (message.role === "toolResult") {
@@ -156,7 +168,9 @@ function logTurn(
 /** Flatten a pi tool result's content blocks to the text shown in a transcript. */
 function toolResultText(result: unknown): string {
   const content = (result as { content?: unknown } | undefined)?.content;
-  if (!Array.isArray(content)) return "";
+  if (!Array.isArray(content)) {
+    return "";
+  }
   return content
     .filter(
       (part: unknown): part is TextContent =>
@@ -180,9 +194,13 @@ function toStreamEvent(event: PiAgentEvent): StreamEvent | undefined {
       return { type: "message_end" };
     case "message_update": {
       const update = event.assistantMessageEvent;
-      if (update.type === "text_delta") return { type: "text", delta: update.delta };
-      if (update.type === "thinking_delta") return { type: "reasoning", delta: update.delta };
-      return undefined;
+      if (update.type === "text_delta") {
+        return { type: "text", delta: update.delta };
+      }
+      if (update.type === "thinking_delta") {
+        return { type: "reasoning", delta: update.delta };
+      }
+      return;
     }
     case "tool_execution_start":
       return {
@@ -199,7 +217,7 @@ function toStreamEvent(event: PiAgentEvent): StreamEvent | undefined {
         isError: event.isError,
       };
     default:
-      return undefined;
+      return;
   }
 }
 
@@ -240,11 +258,13 @@ function selectTurnTools(wiring: PiSessionWiring, request: SessionTurnRequest): 
  *  when unset) — the ground truth of what the model receives. */
 function payloadDumpOptions(): { onPayload?: (payload: unknown) => undefined } {
   const dumpFile = dumpPayloadFile();
-  if (dumpFile === undefined) return {};
+  if (dumpFile === undefined) {
+    return {};
+  }
   return {
     onPayload: (payload: unknown) => {
       appendFileSync(dumpFile, `${JSON.stringify(payload)}\n`);
-      return undefined;
+      return;
     },
   };
 }
@@ -255,10 +275,14 @@ function subscribeStream(
   agent: Agent,
   onEvent: ((event: StreamEvent) => void) | undefined,
 ): (() => void) | undefined {
-  if (onEvent === undefined) return undefined;
+  if (onEvent === undefined) {
+    return;
+  }
   return agent.subscribe((event) => {
     const stream = toStreamEvent(event);
-    if (stream !== undefined) onEvent(stream);
+    if (stream !== undefined) {
+      onEvent(stream);
+    }
   });
 }
 
@@ -270,7 +294,9 @@ function collectTurnResult(newMessages: readonly AgentMessage[]): SessionTurnRes
   let text = "";
   let usage: UsageDelta = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
   for (const message of newMessages) {
-    if (message.role !== "assistant") continue;
+    if (message.role !== "assistant") {
+      continue;
+    }
     if (message.stopReason === "error") {
       throw new FoomHarnessUnavailableError(message.errorMessage ?? "model error");
     }
@@ -281,7 +307,7 @@ function collectTurnResult(newMessages: readonly AgentMessage[]): SessionTurnRes
 }
 
 /** Overrides for testing or custom wiring; defaults resolve from ~/.pi. */
-export interface PiSessionOptions {
+interface PiSessionOptions {
   /** Resolve a model id ("provider/id") to a pi Model. Default: ModelRegistry. */
   readonly resolveModel?: (modelId: string) => Model<Api> | undefined;
   /** Inject a stream function (tests). Default: pi's configured one via createAgentSession. */
@@ -327,7 +353,7 @@ function pluginName(ext: Extension): string {
   // pi types sourceInfo.source as required, but plugin metadata can lack it at runtime.
   return (
     (ext.sourceInfo as { source?: string } | undefined)?.source ??
-    basename(ext.resolvedPath).replace(/\.[^.]+$/, "")
+    basename(ext.resolvedPath).replace(FILE_EXTENSION_RE, "")
   );
 }
 
@@ -341,7 +367,9 @@ async function buildResourceLoader(
   allowedSkills: readonly string[] | undefined,
   allowedPlugins: readonly string[] | undefined,
 ): Promise<ResourceLoader | undefined> {
-  if (allowedSkills === undefined && allowedPlugins === undefined) return undefined;
+  if (allowedSkills === undefined && allowedPlugins === undefined) {
+    return;
+  }
 
   const cwd = process.cwd();
   const agentDir = getAgentDir();
@@ -384,8 +412,12 @@ function wiringKey(
   allowedSkills: readonly string[] | undefined,
   allowedPlugins: readonly string[] | undefined,
 ): string {
-  const ser = (v: readonly string[] | undefined): string =>
-    v === undefined ? "*" : v.length === 0 ? "-" : [...v].sort().join(",");
+  const ser = (v: readonly string[] | undefined): string => {
+    if (v === undefined) {
+      return "*";
+    }
+    return v.length === 0 ? "-" : [...v].sort().join(",");
+  };
   return `${ser(allowedSkills)}|${ser(allowedPlugins)}`;
 }
 
@@ -438,7 +470,9 @@ function makePiHarnessSession(deps: SessionDeps, seed?: readonly AgentMessage[])
         ...payloadDumpOptions(),
       });
       // Branch seed: continue from a copy of the parent transcript (fork()).
-      if (seed !== undefined) agent.state.messages = [...seed];
+      if (seed !== undefined) {
+        agent.state.messages = [...seed];
+      }
       return agent;
     }
     agent.state.systemPrompt = systemPrompt;
@@ -481,7 +515,7 @@ function makePiHarnessSession(deps: SessionDeps, seed?: readonly AgentMessage[])
     // Branch: a new pi session seeded with a COPY of the transcript so far (or
     // the inherited seed when no turn has run yet), diverging independently.
     fork(): HarnessSession {
-      const transcript = agent !== undefined ? agent.state.messages : (seed ?? []);
+      const transcript = agent === undefined ? (seed ?? []) : agent.state.messages;
       return makePiHarnessSession(deps, [...transcript]);
     },
   };
@@ -505,7 +539,7 @@ function makePiHarnessSession(deps: SessionDeps, seed?: readonly AgentMessage[])
  * });
  * ```
  */
-export function createPiOpenSession(options: PiSessionOptions = {}): OpenSession {
+function createPiOpenSession(options: PiSessionOptions = {}): OpenSession {
   const logFile = options.logFile ?? logFileFromEnv();
 
   // Store pi's REAL base prompt; omission is applied per turn (so a scope can flip it
@@ -555,8 +589,8 @@ export function createPiOpenSession(options: PiSessionOptions = {}): OpenSession
     const seed = available[0] ?? registry.getAll()[0];
     const { session } = await createAgentSession({
       modelRegistry: registry,
-      ...(seed !== undefined ? { model: seed } : {}),
-      ...(resourceLoader !== undefined ? { resourceLoader } : {}),
+      ...(seed === undefined ? {} : { model: seed }),
+      ...(resourceLoader === undefined ? {} : { resourceLoader }),
     });
     return {
       streamFn: session.agent.streamFn,
@@ -597,3 +631,6 @@ export function createPiOpenSession(options: PiSessionOptions = {}): OpenSession
     return makePiHarnessSession({ wiring, model, logFile });
   };
 }
+
+export type { PiSessionOptions };
+export { createPiOpenSession, PI_VERSION };

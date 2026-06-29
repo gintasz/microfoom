@@ -5,6 +5,7 @@
 // node CLI's, passed after `--`.
 
 import { isAbsolute, resolve } from "node:path";
+import process from "node:process";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import { type OpenSession, runProgram } from "@microfoom/core";
@@ -19,6 +20,8 @@ import { RERUN_EXIT_CODE } from "./tui/rerun.js";
 import { createStore } from "./tui/store.js";
 import { paletteFor, type ThemeMode } from "./tui/theme.js";
 
+const THEME_QUERY_TIMEOUT_MS = 300;
+
 const HARNESSES: Record<string, () => OpenSession> = {
   pi: createPiOpenSession,
   fake: fakeOpenSession,
@@ -26,7 +29,9 @@ const HARNESSES: Record<string, () => OpenSession> = {
 
 function parseInput(raw: string): unknown {
   const trimmed = raw.trim();
-  if (trimmed.length === 0) return "";
+  if (trimmed.length === 0) {
+    return "";
+  }
   if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
     try {
       return JSON.parse(trimmed);
@@ -41,7 +46,9 @@ function parseInput(raw: string): unknown {
  *  undefined when the name isn't a known harness. */
 function openTuiHarness(harnessName: string, omitHarnessPrompt: boolean): OpenSession | undefined {
   const makeHarness = HARNESSES[harnessName];
-  if (makeHarness === undefined) return undefined;
+  if (makeHarness === undefined) {
+    return;
+  }
   return harnessName === "pi"
     ? createPiOpenSession({ omitHarnessBasePrompt: omitHarnessPrompt })
     : makeHarness();
@@ -55,13 +62,17 @@ async function resolveTheme(
   renderer: Awaited<ReturnType<typeof createCliRenderer>>,
 ): Promise<ThemeMode> {
   const detected =
-    override === "light" || override === "dark" ? override : await renderer.waitForThemeMode(300);
+    override === "light" || override === "dark"
+      ? override
+      : await renderer.waitForThemeMode(THEME_QUERY_TIMEOUT_MS);
   return detected === "light" ? "light" : "dark";
 }
 
 /** Render the program input for the meta header: strings as-is, anything else as JSON. */
 function formatInputMeta(input: unknown): string {
-  if (input === undefined) return "";
+  if (input === undefined) {
+    return "";
+  }
   return typeof input === "string" ? input : JSON.stringify(input);
 }
 
@@ -78,10 +89,10 @@ function buildTuiDefaults(
   plugins?: readonly string[];
 } {
   return {
-    ...(thinking !== undefined ? { thinking } : {}),
-    ...(tools !== undefined ? { tools } : {}),
-    ...(skills !== undefined ? { skills } : {}),
-    ...(plugins !== undefined ? { plugins } : {}),
+    ...(thinking === undefined ? {} : { thinking }),
+    ...(tools === undefined ? {} : { tools }),
+    ...(skills === undefined ? {} : { skills }),
+    ...(plugins === undefined ? {} : { plugins }),
   };
 }
 
@@ -124,7 +135,7 @@ function parseTuiArgs(): ReturnType<typeof parseArgs<typeof TUI_PARSE_CONFIG>> {
 async function main(): Promise<void> {
   const { values, positionals } = parseTuiArgs();
 
-  const file = positionals[0];
+  const [file] = positionals;
   if (file === undefined) {
     process.stderr.write("microfoom tui: missing program file\n");
     process.exit(1);
@@ -215,4 +226,7 @@ function errMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-void main();
+main().catch((error: unknown) => {
+  process.stderr.write(`${errMessage(error)}\n`);
+  process.exit(1);
+});

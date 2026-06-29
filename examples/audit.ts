@@ -22,6 +22,7 @@ import { foom, Program } from "@microfoom/core";
 // Importing the trace entry adds the instrumentation surface (scope/annotate/log)
 // to `this.agent` — the methods exist at runtime regardless; this types them (F8).
 import "@microfoom/core/trace";
+import process from "node:process";
 import { z } from "zod";
 
 // Schemas are any Standard Schema (F4); zod implements it natively, so a bare

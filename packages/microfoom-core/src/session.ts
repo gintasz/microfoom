@@ -102,7 +102,7 @@ export interface SessionTurnResult {
  * subclasses; honor `request.signal`.
  */
 export interface HarnessSession {
-  runTurn(request: SessionTurnRequest): Promise<SessionTurnResult>;
+  runTurn: (request: SessionTurnRequest) => Promise<SessionTurnResult>;
   /**
    * The full system prompt this session will actually send the model for a given
    * program prompt — e.g. a harness that prepends its own base prompt returns
@@ -110,14 +110,14 @@ export interface HarnessSession {
    * as the turn's system prompt); the same composition is applied inside runTurn.
    * Omit when the session sends the program prompt verbatim.
    */
-  systemPrompt?(programPrompt: string): string;
+  systemPrompt?: (programPrompt: string) => string;
   /**
    * Branch this session: return a NEW session seeded with a copy of the current
    * transcript, diverging independently from here (backs AgentSession.fork()).
    * Optional — a harness that can't clone its conversation state omits it, and
    * core's fork() then throws FoomConfigError.
    */
-  fork?(): HarnessSession;
+  fork?: () => HarnessSession;
 }
 
 /** A harness opens one session per program run, given the run's model + caps. */

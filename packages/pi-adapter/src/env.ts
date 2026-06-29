@@ -4,6 +4,7 @@
 // `noProcessEnv` lint is disabled here (and only here) by a biome override.
 
 /** Path to append a JSONL dump of each model request body, or undefined. */
+import process from "node:process";
 export function dumpPayloadFile(): string | undefined {
   return process.env["MICROFOOM_DUMP_PAYLOAD"];
 }

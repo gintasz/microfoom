@@ -3,9 +3,9 @@
 // a clean white surface rather than washed-out dark colors (the parent CLI passes
 // the detected mode in the meta line; see store.ts / cli.ts).
 
-export type ThemeMode = "dark" | "light";
+type ThemeMode = "dark" | "light";
 
-export interface Palette {
+interface Palette {
   readonly bg: string;
   readonly panelBg: string;
   readonly selBg: string;
@@ -67,6 +67,9 @@ const LIGHT: Palette = {
   error: "#cf222e",
 };
 
-export function paletteFor(mode: ThemeMode): Palette {
+function paletteFor(mode: ThemeMode): Palette {
   return mode === "light" ? LIGHT : DARK;
 }
+
+export type { Palette, ThemeMode };
+export { paletteFor };

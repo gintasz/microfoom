@@ -26,7 +26,7 @@ const numberSchema = (() => {
 
 /** The two models to use, one per harness — supplied per run so the program names
  *  no concrete model (pi resolves an openrouter id; claudecli a Claude alias). */
-export interface HarnessModels {
+interface HarnessModels {
   readonly piModel: string;
   readonly cliModel: string;
 }
@@ -45,7 +45,7 @@ const modelsSchema = makeStandardSchema<HarnessModels>((input) => {
 
 /** What the two harnesses each returned, kept apart so the caller can prove both
  *  ran and stayed on their own track. */
-export interface TwoHarnessResult {
+interface TwoHarnessResult {
   readonly pi: number;
   readonly claude: number;
 }
@@ -74,13 +74,17 @@ class TwoHarnessProgram extends Program<typeof modelsSchema, TwoHarnessResult>(m
  * proving this check actually bites (a green suite with a dead assertion is the
  * failure mode this whole exercise exists to kill). Throws on the first mismatch.
  */
-export function assertTwoHarness(out: TwoHarnessResult): void {
-  if (out.pi !== 42) throw new Error(`pi harness: expected 42, got ${out.pi}`);
-  if (out.claude !== 7) throw new Error(`claudecli harness: expected 7, got ${out.claude}`);
+function assertTwoHarness(out: TwoHarnessResult): void {
+  if (out.pi !== 42) {
+    throw new Error(`pi harness: expected 42, got ${out.pi}`);
+  }
+  if (out.claude !== 7) {
+    throw new Error(`claudecli harness: expected 7, got ${out.claude}`);
+  }
 }
 
 /** Run the two-harness program once over the given pair of harness sessions. */
-export function runTwoHarness(
+function runTwoHarness(
   piSession: OpenSession,
   cliSession: OpenSession,
   models: HarnessModels,
@@ -94,3 +98,5 @@ export function runTwoHarness(
     defaults: { tools: [] },
   });
 }
+
+export { assertTwoHarness, runTwoHarness };

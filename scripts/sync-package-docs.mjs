@@ -11,6 +11,7 @@
 
 import { copyFileSync, existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
+import process from "node:process";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -20,12 +21,19 @@ const FILES = ["README.md", "LICENSE"];
 
 for (const name of readdirSync(packagesDir)) {
   const manifestPath = join(packagesDir, name, "package.json");
-  if (!existsSync(manifestPath)) continue;
+  if (!existsSync(manifestPath)) {
+    continue;
+  }
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
-  if (manifest.private === true) continue; // skip non-published packages (e.g. e2e)
+  if (manifest.private === true) {
+    continue; // skip non-published packages (e.g. e2e)
+  }
   for (const file of FILES) {
     const dest = join(packagesDir, name, file);
-    if (clean) rmSync(dest, { force: true });
-    else copyFileSync(join(repoRoot, file), dest);
+    if (clean) {
+      rmSync(dest, { force: true });
+    } else {
+      copyFileSync(join(repoRoot, file), dest);
+    }
   }
 }

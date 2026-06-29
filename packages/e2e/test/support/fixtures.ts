@@ -33,19 +33,21 @@ import { callTool, type ScriptStep, sayText, stall } from "./script.ts";
 
 type Tier = "scripted" | "live";
 
-export interface Fixture {
+interface Fixture {
   readonly name: string;
   readonly tiers: readonly Tier[];
   /** Canned model behavior for the scripted tier (ignored by the live tier). */
   readonly script: readonly ScriptStep[];
   /** Run the program and assert its behavior; throw on any mismatch. */
-  exec(ctx: RunContext, tier: Tier): Promise<void>;
+  exec: (ctx: RunContext, tier: Tier) => Promise<void>;
 }
 
 // ─── assertion helpers (framework-agnostic: a thrown Error fails the test) ─────
 
 function assert(condition: boolean, message: string): asserts condition {
-  if (!condition) throw new Error(`assertion failed: ${message}`);
+  if (!condition) {
+    throw new Error(`assertion failed: ${message}`);
+  }
 }
 
 /** Run `body`, require it to reject, and require the rejection to match `guard`. */
@@ -57,8 +59,10 @@ async function rejects<E extends Error>(
   try {
     await body();
   } catch (error) {
-    if (guard(error)) return error;
-    throw new Error(`${label}: wrong rejection: ${String(error)}`);
+    if (guard(error)) {
+      return error;
+    }
+    throw new Error(`${label}: wrong rejection: ${String(error)}`, { cause: error });
   }
   throw new Error(`${label}: expected a rejection but the run succeeded`);
 }
@@ -80,12 +84,17 @@ async function staysInContract(
   try {
     value = await body();
   } catch (error) {
-    if (error instanceof FoomHarnessError) throw error;
-    if (error instanceof FoomError) return;
-    throw new Error(`${label}: leaked a non-Foom error: ${String(error)}`);
+    if (error instanceof FoomHarnessError) {
+      throw error;
+    }
+    if (error instanceof FoomError) {
+      return;
+    }
+    throw new Error(`${label}: leaked a non-Foom error: ${String(error)}`, { cause: error });
   }
-  if (!isValid(value))
+  if (!isValid(value)) {
     throw new Error(`${label}: returned out-of-contract value: ${String(value)}`);
+  }
 }
 
 const isThrow = (e: unknown): e is FoomThrowError => e instanceof FoomThrowError;
@@ -242,11 +251,11 @@ class ForkProgram extends Program<typeof stringSchema, { base: string; fork: str
   stringSchema,
 ) {
   async main(): Promise<{ base: string; fork: string }> {
-    const base = this.agent.session();
-    const baseColor = await base.value(
+    const baseSession = this.agent.session();
+    const baseColor = await baseSession.value(
       stringSchema,
     )`Name a color. Respond with ONLY the single lowercase word — letters only, no punctuation — via foom_return.`;
-    const forkColor = await base
+    const forkColor = await baseSession
       .fork()
       .value(
         stringSchema,
@@ -290,7 +299,7 @@ function base(ctx: RunContext) {
   };
 }
 
-export const fixtures: readonly Fixture[] = [
+const fixtures: readonly Fixture[] = [
   {
     name: "text turn returns prose",
     tiers: ["scripted", "live"],
@@ -348,7 +357,9 @@ export const fixtures: readonly Fixture[] = [
         sourceFile: SOURCE,
         className: "DoublerProgram",
         onEvent: (event) => {
-          if (event.type === "foom_call" && event.method === "double") calledDouble = true;
+          if (event.type === "foom_call" && event.method === "double") {
+            calledDouble = true;
+          }
         },
       });
       assert(calledDouble, "the double method was not invoked via foom_call");
@@ -384,7 +395,9 @@ export const fixtures: readonly Fixture[] = [
           if (event.type === "tool_end" && event.callId === inspectCallId) {
             inspectResult = event.content;
           }
-          if (event.type === "foom_call" && event.method === "combine") calledCombine = true;
+          if (event.type === "foom_call" && event.method === "combine") {
+            calledCombine = true;
+          }
         },
       });
       assert(inspectResult !== undefined, "no foom_inspect result was observed");
@@ -567,7 +580,9 @@ export const fixtures: readonly Fixture[] = [
       const out = await runProgram(ValueProgram, "x", {
         ...base(ctx),
         onEvent: (event) => {
-          if (event.type === "span_end") totalTokens += event.usage.totalTokens;
+          if (event.type === "span_end") {
+            totalTokens += event.usage.totalTokens;
+          }
         },
       });
       assert(out === 7, `expected 7, got ${out}`);
@@ -643,3 +658,5 @@ export const fixtures: readonly Fixture[] = [
     },
   },
 ];
+
+export { fixtures };

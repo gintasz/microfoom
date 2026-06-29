@@ -5,7 +5,7 @@
 import type { RunNode } from "@microfoom/core/trace";
 import { fmtCost, fmtDuration, fmtTokens } from "../format.js";
 
-export interface TreeRow {
+interface TreeRow {
   readonly span: string;
   readonly name: string;
   readonly kind: RunNode["kind"];
@@ -20,15 +20,20 @@ export interface TreeRow {
 
 function metricsOf(node: RunNode): string {
   const parts: string[] = [];
-  if (node.durationMs !== undefined) parts.push(fmtDuration(node.durationMs));
-  if (node.usage.totalTokens > 0) parts.push(fmtTokens(node.usage.totalTokens));
-  if (node.usage.costUsd !== undefined && node.usage.costUsd > 0)
+  if (node.durationMs !== undefined) {
+    parts.push(fmtDuration(node.durationMs));
+  }
+  if (node.usage.totalTokens > 0) {
+    parts.push(fmtTokens(node.usage.totalTokens));
+  }
+  if (node.usage.costUsd !== undefined && node.usage.costUsd > 0) {
     parts.push(fmtCost(node.usage.costUsd));
+  }
   return parts.join("  ");
 }
 
 /** Depth-first flatten of the run tree into ordered rows. */
-export function flattenTree(root: RunNode): readonly TreeRow[] {
+function flattenTree(root: RunNode): readonly TreeRow[] {
   const out: TreeRow[] = [];
   const walk = (node: RunNode, depth: number): void => {
     out.push({
@@ -40,29 +45,42 @@ export function flattenTree(root: RunNode): readonly TreeRow[] {
       metrics: metricsOf(node),
       settled: node.settled,
     });
-    for (const child of node.children) walk(child, depth + 1);
+    for (const child of node.children) {
+      walk(child, depth + 1);
+    }
   };
   walk(root, 0);
   return out;
 }
 
 /** Span ids in the subtree rooted at `span` (inclusive). Empty if not found. */
-export function subtreeSpans(root: RunNode, span: string): ReadonlySet<string> {
+function subtreeSpans(root: RunNode, span: string): ReadonlySet<string> {
   const find = (node: RunNode): RunNode | undefined => {
-    if (node.span === span) return node;
+    if (node.span === span) {
+      return node;
+    }
     for (const child of node.children) {
       const hit = find(child);
-      if (hit !== undefined) return hit;
+      if (hit !== undefined) {
+        return hit;
+      }
     }
-    return undefined;
+    return;
   };
   const target = find(root);
   const out = new Set<string>();
-  if (target === undefined) return out;
+  if (target === undefined) {
+    return out;
+  }
   const collect = (node: RunNode): void => {
     out.add(node.span);
-    for (const child of node.children) collect(child);
+    for (const child of node.children) {
+      collect(child);
+    }
   };
   collect(target);
   return out;
 }
+
+export type { TreeRow };
+export { flattenTree, subtreeSpans };

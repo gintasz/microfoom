@@ -8,6 +8,7 @@ import { execSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
+import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { createTerminal } from "@termless/core";
 import { createXtermBackend } from "@termless/xtermjs";
@@ -17,7 +18,11 @@ import { afterAll, beforeAll, expect, test } from "vitest";
 function resolveBun(): string {
   const home = process.env["HOME"] ?? "";
   const candidates = [resolve(home, ".bun/bin/bun"), "/usr/local/bin/bun", "/opt/homebrew/bin/bun"];
-  for (const candidate of candidates) if (existsSync(candidate)) return candidate;
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+  }
   try {
     return execSync("command -v bun", { encoding: "utf8" }).trim();
   } catch {
@@ -32,6 +37,11 @@ const tuiEntry = resolve(repoRoot, "packages/microfoom-cli/src/tui.tsx");
 const program = resolve(repoRoot, "examples/hello.ts");
 const shotsDir = resolve(tmpdir(), "microfoom-tui-shots");
 
+const HEADER_HARNESS_RE = /microfoom.*fake/;
+const OSC52_CLIPBOARD_RE = /]52;c;([A-Za-z0-9+/=]+)/;
+const COPIED_CHARS_RE = /copied \d+ chars/;
+const FOCUSED_TRANSCRIPT_RE = /TRANSCRIPT · span/;
+
 let term: ReturnType<typeof createTerminal>;
 
 beforeAll(async () => {
@@ -39,8 +49,8 @@ beforeAll(async () => {
   term = createTerminal({ backend: createXtermBackend(), cols: 120, rows: 36 });
   await term.spawn([bun, tuiEntry, program, "Ada", "--harness", "fake", "--theme", "dark"]);
   // Wait for the run to settle (tool result is the last transcript entry).
-  await term.waitFor("tool result", 20000);
-}, 30000);
+  await term.waitFor("tool result", 20_000);
+}, 30_000);
 
 afterAll(async () => {
   await term?.close();
@@ -64,7 +74,7 @@ test("renders the two-pane inspector with trace + transcript", () => {
   // Status footer reflects completion.
   expect(screen).toContain("done");
   // Header names the harness in use.
-  expect(screen).toMatch(/microfoom.*fake/);
+  expect(screen).toMatch(HEADER_HARNESS_RE);
   writeFileSync(resolve(shotsDir, "01-overview.svg"), term.screenshotSvg());
 });
 
@@ -79,12 +89,12 @@ test("drag-selecting transcript text copies it to the clipboard via OSC 52", asy
   term.mouseUp(110, y);
   await new Promise((r) => setTimeout(r, 300));
   // The OSC 52 clipboard write lands in the raw output stream.
-  const match = term.out.getText().match(/]52;c;([A-Za-z0-9+/=]+)/);
+  const match = term.out.getText().match(OSC52_CLIPBOARD_RE);
   expect(match).not.toBeNull();
   expect(
     Buffer.from((match as RegExpMatchArray)[1] ?? "", "base64").toString("utf8").length,
   ).toBeGreaterThan(0);
-  expect(term.screen.getText()).toMatch(/copied \d+ chars/);
+  expect(term.screen.getText()).toMatch(COPIED_CHARS_RE);
 });
 
 test("clicking a trace node filters the transcript to that span", async () => {
@@ -92,7 +102,7 @@ test("clicking a trace node filters the transcript to that span", async () => {
   term.click(5, 3);
   await term.waitFor("TRANSCRIPT · span", 5000);
   const screen = term.screen.getText();
-  expect(screen).toMatch(/TRANSCRIPT · span/);
+  expect(screen).toMatch(FOCUSED_TRANSCRIPT_RE);
   writeFileSync(resolve(shotsDir, "02-node-selected.svg"), term.screenshotSvg());
 });
 
@@ -101,10 +111,13 @@ test("'a' clears the filter back to the full transcript", async () => {
   // Poll until the span suffix is gone (no waitForAbsence in termless).
   let cleared = false;
   for (let i = 0; i < 30 && !cleared; i += 1) {
-    if (!/TRANSCRIPT · span/.test(term.screen.getText())) cleared = true;
-    else await new Promise((r) => setTimeout(r, 100));
+    if (FOCUSED_TRANSCRIPT_RE.test(term.screen.getText())) {
+      await new Promise((r) => setTimeout(r, 100));
+    } else {
+      cleared = true;
+    }
   }
-  expect(term.screen.getText()).not.toMatch(/TRANSCRIPT · span/);
+  expect(term.screen.getText()).not.toMatch(FOCUSED_TRANSCRIPT_RE);
 });
 
 test("system prompt + full user msg are hidden by default, toggled with s/m", async () => {
@@ -134,7 +147,7 @@ test("'r' re-runs and picks up source edits (fresh process via the node launcher
   const t2 = createTerminal({ backend: createXtermBackend(), cols: 120, rows: 30 });
   try {
     await t2.spawn(["node", "--import", "tsx", cli, tmp, "Ada", "--harness", "fake", "--tui"]);
-    await t2.waitFor("tool result", 20000);
+    await t2.waitFor("tool result", 20_000);
     expect(t2.screen.getText()).not.toContain("ZESTY");
     writeFileSync(
       tmp,
@@ -142,13 +155,13 @@ test("'r' re-runs and picks up source edits (fresh process via the node launcher
     );
     await new Promise((r) => setTimeout(r, 200));
     t2.press("r");
-    await t2.waitFor("ZESTY", 15000);
+    await t2.waitFor("ZESTY", 15_000);
     expect(t2.screen.getText()).toContain("ZESTY");
   } finally {
     await t2.close();
     rmSync(tmp, { force: true });
   }
-}, 45000);
+}, 45_000);
 
 test("writes a PNG screenshot when a renderer is available", async () => {
   try {

@@ -30,13 +30,17 @@ export function standardInputJsonSchema(schema: StandardSchemaV1): JsonSchema | 
       };
     }
   )["~standard"]?.jsonSchema;
-  if (converter?.input === undefined) return undefined;
+  if (converter?.input === undefined) {
+    return;
+  }
   try {
     const json: Record<string, unknown> = { ...converter.input({ target: "draft-2020-12" }) };
-    delete json["$schema"];
+    // Strip `$schema` (providers want a bare subschema). Reflect, not the `delete`
+    // operator (noDelete), removes the key outright — `= undefined` would leave it present.
+    Reflect.deleteProperty(json, "$schema");
     return json;
   } catch {
-    return undefined;
+    return;
   }
 }
 

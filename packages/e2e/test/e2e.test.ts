@@ -17,7 +17,9 @@ import { assertTwoHarness, runTwoHarness } from "./support/multi.ts";
 for (const adapter of adapters) {
   describe(`microfoom runtime behavior — ${adapter.name} (live)`, () => {
     for (const fixture of fixtures) {
-      if (!fixture.tiers.includes("live")) continue;
+      if (!fixture.tiers.includes("live")) {
+        continue;
+      }
       it(fixture.name, async () => {
         try {
           await fixture.exec(adapter.live, "live");

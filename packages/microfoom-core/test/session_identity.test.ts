@@ -47,12 +47,20 @@ function recordingOpenSession(prompts: string[], script: readonly Round[]): Open
       while (cursor < script.length) {
         const round = script[cursor];
         cursor += 1;
-        if (round === undefined) break;
-        if ("text" in round) return { assistantText: round.text, usage: USAGE };
+        if (round === undefined) {
+          break;
+        }
+        if ("text" in round) {
+          return { assistantText: round.text, usage: USAGE };
+        }
         const tool = request.tools.find((candidate) => candidate.name === round.call.name);
-        if (tool === undefined) return { assistantText: "", usage: USAGE };
+        if (tool === undefined) {
+          return { assistantText: "", usage: USAGE };
+        }
         const result = await tool.execute(round.call.args);
-        if (result.terminate === true) return { assistantText: "", usage: USAGE };
+        if (result.terminate === true) {
+          return { assistantText: "", usage: USAGE };
+        }
       }
       return { assistantText: "", usage: USAGE };
     },

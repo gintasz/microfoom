@@ -18,12 +18,19 @@ import { applyRename } from "./rename.js";
 /** The protocol version we echo back; Claude Code negotiates from its own. */
 const FALLBACK_PROTOCOL_VERSION = "2025-06-18";
 
+/** HTTP 200 OK — a JSON-RPC response body follows. */
+const HTTP_OK = 200;
+/** HTTP 202 Accepted — acknowledged, no JSON-RPC reply (notification / non-POST). */
+const HTTP_ACCEPTED = 202;
+
 /** Fold a tool's optional usage blurb + guideline bullets into the one
  *  model-native field an MCP tool has — its description. (Claude Code MCP tools
  *  carry no separate promptSnippet slot.) */
 function toolDescription(tool: NeutralToolDef): string {
   const parts = [tool.description];
-  if (tool.promptSnippet !== undefined) parts.push(tool.promptSnippet);
+  if (tool.promptSnippet !== undefined) {
+    parts.push(tool.promptSnippet);
+  }
   if (tool.promptGuidelines !== undefined && tool.promptGuidelines.length > 0) {
     parts.push(["Guidelines:", ...tool.promptGuidelines.map((rule) => `- ${rule}`)].join("\n"));
   }
@@ -38,18 +45,18 @@ interface JsonRpcRequest {
 }
 
 /** A live MCP endpoint for one turn. */
-export interface McpServerHandle {
+interface McpServerHandle {
   /** The URL Claude Code is pointed at via `--mcp-config`. */
   readonly url: string;
   /** True once a tool signalled a terminal outcome (foom_return / foom_throw). */
-  terminated(): boolean;
+  terminated: () => boolean;
   /** Shut the server down, force-closing any lingering keep-alive sockets. */
-  close(): Promise<void>;
+  close: () => Promise<void>;
 }
 
 /** The pure JSON-RPC handler, transport-free so tests can drive it without a
  *  socket. Returns the response object, or `null` for a notification (no reply). */
-export function createMcpHandler(
+function createMcpHandler(
   tools: readonly NeutralToolDef[],
   serverName: string,
 ): {
@@ -76,11 +83,13 @@ export function createMcpHandler(
       return {
         jsonrpc: "2.0",
         id,
-        error: { code: -32602, message: `unknown tool: ${String(params["name"])}` },
+        error: { code: -32_602, message: `unknown tool: ${String(params["name"])}` },
       };
     }
     const result = await tool.execute(params["arguments"] ?? {});
-    if (result.terminate === true) didTerminate = true;
+    if (result.terminate === true) {
+      didTerminate = true;
+    }
     return {
       jsonrpc: "2.0",
       id,
@@ -112,8 +121,10 @@ export function createMcpHandler(
         return callTool(request);
       default:
         // Notifications (no id) get no reply; unknown requests get method-not-found.
-        if (request.id === undefined || request.id === null) return null;
-        return { jsonrpc: "2.0", id, error: { code: -32601, message: "method not found" } };
+        if (request.id === undefined || request.id === null) {
+          return null;
+        }
+        return { jsonrpc: "2.0", id, error: { code: -32_601, message: "method not found" } };
     }
   };
 
@@ -134,44 +145,46 @@ function readBody(req: IncomingMessage): Promise<string> {
 }
 
 /** Start the HTTP MCP server on an ephemeral localhost port for this turn. */
-export async function startMcpServer(
+async function startMcpServer(
   tools: readonly NeutralToolDef[],
   serverName: string,
 ): Promise<McpServerHandle> {
   const { handle, terminated } = createMcpHandler(tools, serverName);
 
   const server: Server = createServer((req: IncomingMessage, res: ServerResponse) => {
-    void (async () => {
+    (async () => {
       // Only POST carries JSON-RPC; GET (SSE open) / DELETE / empty bodies are
       // acknowledged with 202 so the client proceeds over plain request/response.
       if (req.method !== "POST") {
-        res.writeHead(202).end();
+        res.writeHead(HTTP_ACCEPTED).end();
         return;
       }
       const body = await readBody(req);
       if (body.trim() === "") {
-        res.writeHead(202).end();
+        res.writeHead(HTTP_ACCEPTED).end();
         return;
       }
       let response: Record<string, unknown> | null;
       try {
         response = await handle(JSON.parse(body) as JsonRpcRequest);
       } catch (error) {
-        res.writeHead(200, { "Content-Type": "application/json" }).end(
+        res.writeHead(HTTP_OK, { "Content-Type": "application/json" }).end(
           JSON.stringify({
             jsonrpc: "2.0",
             id: null,
-            error: { code: -32603, message: String(error) },
+            error: { code: -32_603, message: String(error) },
           }),
         );
         return;
       }
       if (response === null) {
-        res.writeHead(202).end();
+        res.writeHead(HTTP_ACCEPTED).end();
         return;
       }
-      res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify(response));
-    })();
+      res.writeHead(HTTP_OK, { "Content-Type": "application/json" }).end(JSON.stringify(response));
+    })().catch(() => {
+      // Fire-and-forget: a failed write to a hung socket can't be recovered here.
+    });
   });
 
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -188,3 +201,5 @@ export async function startMcpServer(
       }),
   };
 }
+
+export { createMcpHandler, startMcpServer };

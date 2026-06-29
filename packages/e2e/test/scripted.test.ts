@@ -11,10 +11,14 @@ import { fixtures } from "./support/fixtures.ts";
 import { assertTwoHarness, runTwoHarness } from "./support/multi.ts";
 import { callTool } from "./support/script.ts";
 
+const CLAUDECLI_HARNESS_RE = /claudecli harness/;
+
 for (const adapter of adapters) {
   describe(`microfoom runtime behavior — ${adapter.name} (scripted)`, () => {
     for (const fixture of fixtures) {
-      if (!fixture.tiers.includes("scripted")) continue;
+      if (!fixture.tiers.includes("scripted")) {
+        continue;
+      }
       it(fixture.name, async () => {
         await fixture.exec(adapter.scripted(fixture.script), "scripted");
       });
@@ -52,6 +56,6 @@ describe("two adapters in one program (scripted)", () => {
       cliModel: cli.model,
     });
     expect(out.claude).toBe(999); // the second harness's output really reached us…
-    expect(() => assertTwoHarness(out)).toThrow(/claudecli harness/); // …and the verdict rejects it
+    expect(() => assertTwoHarness(out)).toThrow(CLAUDECLI_HARNESS_RE); // …and the verdict rejects it
   });
 });

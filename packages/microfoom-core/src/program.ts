@@ -48,10 +48,7 @@ import {
  * await this.agent.prose`Briefly explain ${topic}.`;
  * ```
  */
-export type AgentProseTemplate = (
-  strings: TemplateStringsArray,
-  ...values: unknown[]
-) => AgentTextStream;
+type AgentProseTemplate = (strings: TemplateStringsArray, ...values: unknown[]) => AgentTextStream;
 
 /**
  * A structured-value turn: pass a Standard Schema, then tag a template literal.
@@ -64,7 +61,7 @@ export type AgentProseTemplate = (
  *   Pick a number between 0 and 100, then foom_return it.`;
  * ```
  */
-export type AgentValueTemplate = <S extends StandardSchemaV1>(
+type AgentValueTemplate = <S extends StandardSchemaV1>(
   schema: S,
 ) => (
   strings: TemplateStringsArray,
@@ -80,13 +77,10 @@ export type AgentValueTemplate = <S extends StandardSchemaV1>(
  * await this.agent.do`Read the failing test and fix the bug it covers.`;
  * ```
  */
-export type AgentDoTemplate = (
-  strings: TemplateStringsArray,
-  ...values: unknown[]
-) => AgentResult<void>;
+type AgentDoTemplate = (strings: TemplateStringsArray, ...values: unknown[]) => AgentResult<void>;
 
 /** The output modes available wherever prompts run: act (`do`), `prose`, `value`. */
-export interface AgentRun {
+interface AgentRun {
   /** Act turn: run instructions for their side effects, resolve to `void`. The
    *  cheapest mode — no schema, no final message. See {@link AgentDoTemplate}. */
   readonly do: AgentDoTemplate;
@@ -99,18 +93,18 @@ export interface AgentRun {
 }
 
 /** A stateful conversation (shared transcript). Single-flight; fork() to branch. */
-export interface AgentSession extends AgentRun {
-  with(options: AgentOptions): AgentSession;
-  fork(): AgentSession;
+interface AgentSession extends AgentRun {
+  with: (options: AgentOptions) => AgentSession;
+  fork: () => AgentSession;
   readonly usage: AgentUsage;
 }
 
 /** Per-instance run context, injected as `this.agent`. Stateless text/value. */
-export interface AgentProgramContext<TProgram extends object> extends AgentRun {
+interface AgentProgramContext<TProgram extends object> extends AgentRun {
   readonly program: TProgram;
   readonly usage: AgentUsage;
-  session(options?: AgentOptions): AgentSession;
-  with(options: AgentOptions): AgentProgramContext<TProgram>;
+  session: (options?: AgentOptions) => AgentSession;
+  with: (options: AgentOptions) => AgentProgramContext<TProgram>;
 }
 
 /**
@@ -118,18 +112,18 @@ export interface AgentProgramContext<TProgram extends object> extends AgentRun {
  * `@microfoom/core/trace` is imported (which augments AgentProgramContext); the
  * methods exist at runtime.
  */
-export interface AgentScope extends AgentRun {
-  with(options: AgentOptions): AgentScope;
-  scope(name: string): AgentScope;
-  annotate(attributes: Record<string, unknown>): void;
-  log(message: string, level?: "info" | "warn" | "error"): void;
+interface AgentScope extends AgentRun {
+  with: (options: AgentOptions) => AgentScope;
+  scope: (name: string) => AgentScope;
+  annotate: (attributes: Record<string, unknown>) => void;
+  log: (message: string, level?: "info" | "warn" | "error") => void;
 }
 
 /** The trace members added to the context (gated behind the trace entry). */
 interface TraceContext {
-  scope(name: string): AgentScope;
-  onEvent(handler: (event: AgentEvent) => void): void;
-  export(exporter: AgentTraceExporter): void;
+  scope: (name: string) => AgentScope;
+  onEvent: (handler: (event: AgentEvent) => void) => void;
+  export: (exporter: AgentTraceExporter) => void;
 }
 
 // ─── Program base + Program(schema) ──────────────────────────────────────────
@@ -137,12 +131,12 @@ interface TraceContext {
 const contexts = new WeakMap<object, AgentProgramContext<object>>();
 
 /** Internal: the runner wires `this.agent` after constructing a program. */
-export function attachContext<P extends object>(program: P, context: AgentProgramContext<P>): void {
+function attachContext<P extends object>(program: P, context: AgentProgramContext<P>): void {
   contexts.set(program, context);
 }
 
 /** The program base class. Extend via Program(schema) for a typed input. */
-export abstract class FoomProgram<I = string[], R = unknown> {
+abstract class FoomProgram<I = string[], R = unknown> {
   public static input?: StandardSchemaV1;
   public static maxProgramDuration?: string;
 
@@ -179,7 +173,7 @@ export abstract class FoomProgram<I = string[], R = unknown> {
  * }
  * ```
  */
-export function Program<S extends StandardSchemaV1, R = unknown>(
+function Program<S extends StandardSchemaV1, R = unknown>(
   input: S,
 ): abstract new () => FoomProgram<StandardSchemaV1.InferOutput<S>, R> {
   abstract class BoundProgram extends FoomProgram<StandardSchemaV1.InferOutput<S>, R> {
@@ -191,7 +185,7 @@ export function Program<S extends StandardSchemaV1, R = unknown>(
 // ─── Runner ──────────────────────────────────────────────────────────────────
 
 /** Options for running a program: the harness registry, model, source. */
-export interface RunProgramOptions {
+interface RunProgramOptions {
   /** Named harness ports — each name opens sessions on one harness. A sole entry
    *  is the default; with several, set `defaultHarness` or select per scope via
    *  `@foom.config({ harness })` / `.with({ harness })`. */
@@ -242,24 +236,32 @@ const DO_TURN_NOTICE = noticeBlock(
 );
 
 function pickConfig(options: AgentOptions): AgentConfig {
-  const { onToken, signal, label, ...config } = options;
-  void onToken;
-  void signal;
-  void label;
+  // Strip the runtime-only fields (onToken, signal, label); the rest is config.
+  const { onToken: _onToken, signal: _signal, label: _label, ...config } = options;
   return config;
 }
 
+/** Validation failures tolerated before a turn gives up (AgentConfig default). */
+const DEFAULT_REPAIR_ATTEMPTS = 3;
+
 function resolveCaps(config: AgentConfig): ResolvedCaps {
   const caps: { -readonly [K in keyof ResolvedCaps]: ResolvedCaps[K] } = {
-    repairAttempts: config.repairAttempts ?? 3,
+    repairAttempts: config.repairAttempts ?? DEFAULT_REPAIR_ATTEMPTS,
   };
-  if (config.maxBudgetUsd !== undefined) caps.maxBudgetUsd = config.maxBudgetUsd;
-  if (config.maxOutputTokens !== undefined) caps.maxOutputTokens = config.maxOutputTokens;
-  if (config.maxCallDepth !== undefined) caps.maxCallDepth = config.maxCallDepth;
+  if (config.maxBudgetUsd !== undefined) {
+    caps.maxBudgetUsd = config.maxBudgetUsd;
+  }
+  if (config.maxOutputTokens !== undefined) {
+    caps.maxOutputTokens = config.maxOutputTokens;
+  }
+  if (config.maxCallDepth !== undefined) {
+    caps.maxCallDepth = config.maxCallDepth;
+  }
   if (config.maxTurnDuration !== undefined) {
     const ms = durationToMs(config.maxTurnDuration);
-    if (ms === undefined)
+    if (ms === undefined) {
       throw new FoomConfigError(`invalid maxTurnDuration: ${config.maxTurnDuration}`);
+    }
     caps.maxTurnDurationMs = ms;
   }
   return caps;
@@ -283,7 +285,9 @@ interface Runtime {
 }
 
 function emitAll(runtime: Runtime, event: AgentEvent): void {
-  for (const listener of runtime.listeners) listener(event);
+  for (const listener of runtime.listeners) {
+    listener(event);
+  }
 }
 
 /**
@@ -301,7 +305,9 @@ function withSpan<T>(
   kind: "program" | "method",
   fn: () => Promise<T>,
 ): Promise<T> {
-  if (runtime.listeners.size === 0) return fn();
+  if (runtime.listeners.size === 0) {
+    return fn();
+  }
   const span = runtime.nextSpan();
   const parent = runtime.spanALS.getStore();
   emitAll(runtime, {
@@ -309,7 +315,7 @@ function withSpan<T>(
     span,
     name,
     kind,
-    ...(parent !== undefined ? { parent } : {}),
+    ...(parent === undefined ? {} : { parent }),
   });
   const startedAt = Date.now();
   return runtime.spanALS.run(span, async () => {
@@ -327,9 +333,13 @@ function withSpan<T>(
 }
 
 function deriveFor(runtime: Runtime, method: string): DerivedParameters | undefined {
-  if (runtime.sourceFile === undefined) return undefined;
+  if (runtime.sourceFile === undefined) {
+    return;
+  }
   const cached = runtime.derivations.get(method);
-  if (cached !== undefined) return cached;
+  if (cached !== undefined) {
+    return cached;
+  }
   const derived = deriveMethodParameters(runtime.sourceFile, runtime.className, method);
   runtime.derivations.set(method, derived);
   return derived;
@@ -337,7 +347,7 @@ function deriveFor(runtime: Runtime, method: string): DerivedParameters | undefi
 
 function methodConfigOf(runtime: Runtime, method: string): AgentConfig | undefined {
   const config = readClassMeta(runtime.instance)?.methods.get(method)?.config;
-  return config !== undefined ? pickConfig(config) : undefined;
+  return config === undefined ? undefined : pickConfig(config);
 }
 
 function buildContext(runtime: Runtime): ProgramTurnContext {
@@ -348,17 +358,18 @@ function buildContext(runtime: Runtime): ProgramTurnContext {
     promptGuidelines?: readonly string[];
   }> = [];
   for (const [name, meta] of runtime.exposed) {
-    if (meta.tier === "tool")
+    if (meta.tier === "tool") {
       toolTier.push({
         name,
         description: meta.tool?.description ?? `Method ${name}.`,
-        ...(meta.tool?.promptSnippet !== undefined
-          ? { promptSnippet: meta.tool.promptSnippet }
-          : {}),
-        ...(meta.tool?.promptGuidelines !== undefined
-          ? { promptGuidelines: meta.tool.promptGuidelines }
-          : {}),
+        ...(meta.tool?.promptSnippet === undefined
+          ? {}
+          : { promptSnippet: meta.tool.promptSnippet }),
+        ...(meta.tool?.promptGuidelines === undefined
+          ? {}
+          : { promptGuidelines: meta.tool.promptGuidelines }),
       });
+    }
   }
   return {
     isExposed: (method: string): boolean => runtime.exposed.has(method),
@@ -367,7 +378,9 @@ function buildContext(runtime: Runtime): ProgramTurnContext {
     depth: (): number => runtime.depth,
     validateArgs: async (method: string, args: unknown) => {
       const derived = deriveFor(runtime, method);
-      if (derived === undefined) return undefined;
+      if (derived === undefined) {
+        return;
+      }
       const result = await Promise.resolve(derived.schema["~standard"].validate(args));
       return result.issues;
     },
@@ -378,11 +391,13 @@ function buildContext(runtime: Runtime): ProgramTurnContext {
         unknown
       >;
       const positional =
-        derived !== undefined ? derived.paramNames.map((name) => record[name]) : [record];
+        derived === undefined ? [record] : derived.paramNames.map((name) => record[name]);
       const fn = (runtime.instance as Record<string, ((...a: unknown[]) => unknown) | undefined>)[
         method
       ];
-      if (typeof fn !== "function") throw new FoomDispatchError(`method "${method}" is missing`);
+      if (typeof fn !== "function") {
+        throw new FoomDispatchError(`method "${method}" is missing`);
+      }
       const previousDepth = runtime.depth;
       const previousMethodConfig = runtime.methodConfig;
       runtime.depth = previousDepth + 1;
@@ -434,12 +449,14 @@ function composeProgramSystemPrompt(runtime: Runtime, merged: AgentConfig): stri
       announcements.push(`- ${name}: ${meta.announcement}`);
     }
   }
-  const userPrompt =
-    merged.systemPrompt === undefined
-      ? ""
-      : "append" in merged.systemPrompt
-        ? merged.systemPrompt.append
-        : merged.systemPrompt.replace;
+  let userPrompt: string;
+  if (merged.systemPrompt === undefined) {
+    userPrompt = "";
+  } else if ("append" in merged.systemPrompt) {
+    userPrompt = merged.systemPrompt.append;
+  } else {
+    userPrompt = merged.systemPrompt.replace;
+  }
   const runtimeBody =
     announcements.length > 0
       ? `${PROTOCOL_INTRO}\n\nMethods you may call via foom_call:\n${announcements.join("\n")}`
@@ -466,17 +483,17 @@ function prepare(runtime: Runtime, options: AgentOptions, frozen?: FrozenIdentit
     throw new FoomConfigError("no model configured (set it via run options or @foom.config)");
   }
   const systemPrompt =
-    frozen !== undefined ? frozen.systemPrompt : composeProgramSystemPrompt(runtime, merged);
+    frozen === undefined ? composeProgramSystemPrompt(runtime, merged) : frozen.systemPrompt;
   const omitBasePrompt =
-    frozen !== undefined ? frozen.omitBasePrompt : merged.omitHarnessBasePrompt;
+    frozen === undefined ? merged.omitHarnessBasePrompt : frozen.omitBasePrompt;
   const prepared: Prepared = {
     model: merged.model,
     systemPrompt,
     caps: resolveCaps(merged),
-    ...(merged.thinking !== undefined ? { thinking: merged.thinking } : {}),
-    ...(merged.tools !== undefined ? { tools: merged.tools } : {}),
-    ...(omitBasePrompt !== undefined ? { omitBasePrompt } : {}),
-    ...(merged.retries !== undefined ? { retries: merged.retries } : {}),
+    ...(merged.thinking === undefined ? {} : { thinking: merged.thinking }),
+    ...(merged.tools === undefined ? {} : { tools: merged.tools }),
+    ...(omitBasePrompt === undefined ? {} : { omitBasePrompt }),
+    ...(merged.retries === undefined ? {} : { retries: merged.retries }),
   };
   return prepared;
 }
@@ -497,9 +514,9 @@ function freezeIdentity(runtime: Runtime, options: AgentOptions): FrozenIdentity
   const merged = mergeConfigChain(scopes);
   return {
     systemPrompt: composeProgramSystemPrompt(runtime, merged),
-    ...(merged.omitHarnessBasePrompt !== undefined
-      ? { omitBasePrompt: merged.omitHarnessBasePrompt }
-      : {}),
+    ...(merged.omitHarnessBasePrompt === undefined
+      ? {}
+      : { omitBasePrompt: merged.omitHarnessBasePrompt }),
   };
 }
 
@@ -522,7 +539,9 @@ const SESSION_LOCKED_FIELDS: ReadonlyArray<keyof AgentOptions> = [
 /** Reject a session `.with()` that tries to change any session-locked field. */
 function assertNoLockedChange(extra: AgentOptions): void {
   const locked = SESSION_LOCKED_FIELDS.filter((field) => extra[field] !== undefined);
-  if (locked.length === 0) return;
+  if (locked.length === 0) {
+    return;
+  }
   const [subject, object] = locked.length === 1 ? ["it is", "it"] : ["they are", "them"];
   throw new FoomConfigError(
     `cannot change ${locked.join(", ")} mid-session — ${subject} fixed when session() opens. ` +
@@ -551,8 +570,12 @@ interface SessionSource {
 // A value/do turn must terminate with foom_return; nudge the model at the end of
 // its prompt. Prose turns just stream text, so they need no notice.
 function buildTurnPrompt(mode: TurnMode, prompt: string): string {
-  if (mode.kind === "value") return `${prompt}\n\n${VALUE_TURN_NOTICE}`;
-  if (mode.kind === "do") return `${prompt}\n\n${DO_TURN_NOTICE}`;
+  if (mode.kind === "value") {
+    return `${prompt}\n\n${VALUE_TURN_NOTICE}`;
+  }
+  if (mode.kind === "do") {
+    return `${prompt}\n\n${DO_TURN_NOTICE}`;
+  }
   return prompt;
 }
 
@@ -571,13 +594,13 @@ function emitTurnStart(
     span,
     name: options.label ?? mode.kind,
     kind: "turn",
-    ...(parent !== undefined ? { parent } : {}),
+    ...(parent === undefined ? {} : { parent }),
   });
   emitAll(
     runtime,
-    options.label !== undefined
-      ? { type: "turn_start", span, label: options.label }
-      : { type: "turn_start", span },
+    options.label === undefined
+      ? { type: "turn_start", span }
+      : { type: "turn_start", span, label: options.label },
   );
 }
 
@@ -623,12 +646,12 @@ function buildRunTurnParams(args: {
     fold: args.fold,
     ...(traced ? { emit: (event: AgentEvent) => emitAll(runtime, event) } : {}),
     span,
-    ...(prepared.thinking !== undefined ? { thinking: prepared.thinking } : {}),
-    ...(prepared.tools !== undefined ? { tools: prepared.tools } : {}),
-    ...(prepared.omitBasePrompt !== undefined ? { omitBasePrompt: prepared.omitBasePrompt } : {}),
-    ...(prepared.retries !== undefined ? { retries: prepared.retries } : {}),
-    ...(options.onToken !== undefined ? { onToken: options.onToken } : {}),
-    ...(onStreamChunk !== undefined ? { onStreamChunk } : {}),
+    ...(prepared.thinking === undefined ? {} : { thinking: prepared.thinking }),
+    ...(prepared.tools === undefined ? {} : { tools: prepared.tools }),
+    ...(prepared.omitBasePrompt === undefined ? {} : { omitBasePrompt: prepared.omitBasePrompt }),
+    ...(prepared.retries === undefined ? {} : { retries: prepared.retries }),
+    ...(options.onToken === undefined ? {} : { onToken: options.onToken }),
+    ...(onStreamChunk === undefined ? {} : { onStreamChunk }),
     signal: args.signal,
   };
 }
@@ -660,7 +683,9 @@ async function driveTurn(
   const traced = runtime.listeners.size > 0;
   // A turn is a span leaf: its usage is the real harness delta(s) folded here.
   let turnDelta = emptyUsage;
-  if (traced) emitTurnStart(runtime, span, mode, options, parentSpan);
+  if (traced) {
+    emitTurnStart(runtime, span, mode, options, parentSpan);
+  }
   const turnPrompt = buildTurnPrompt(mode, prompt);
   const startedAt = Date.now();
   try {
@@ -675,7 +700,9 @@ async function driveTurn(
       });
     }
     const fold = (delta: UsageAccount): UsageAccount => {
-      if (traced) turnDelta = combineUsage(turnDelta, delta);
+      if (traced) {
+        turnDelta = combineUsage(turnDelta, delta);
+      }
       runtime.usage = combineUsage(runtime.usage, delta);
       return runtime.usage;
     };
@@ -699,11 +726,17 @@ async function driveTurn(
       ),
     );
   } catch (error) {
-    if (signal.aborted) throw new FoomCancelledError("the agent run was aborted");
+    if (signal.aborted) {
+      throw new FoomCancelledError("the agent run was aborted", { cause: error });
+    }
     throw error;
   } finally {
-    if (traced) emitTurnEnd(runtime, span, startedAt, turnDelta);
-    if (source.guard !== undefined) source.guard.inFlight = false;
+    if (traced) {
+      emitTurnEnd(runtime, span, startedAt, turnDelta);
+    }
+    if (source.guard !== undefined) {
+      source.guard.inFlight = false;
+    }
   }
 }
 
@@ -719,7 +752,9 @@ function makeRun(
   // driveTurn clears the in-flight flag when it settles.
   const begin = (): void => {
     if (source.guard !== undefined) {
-      if (source.guard.inFlight) throw new FoomConcurrencyError("overlapping turns on one session");
+      if (source.guard.inFlight) {
+        throw new FoomConcurrencyError("overlapping turns on one session");
+      }
       source.guard.inFlight = true;
     }
   };
@@ -861,7 +896,9 @@ function makeSession(runtime: Runtime, options: AgentOptions): AgentSession {
 
 function optionsModel(runtime: Runtime, options: AgentOptions): string {
   const merged = mergeConfigChain([runtime.defaults, runtime.classConfig, pickConfig(options)]);
-  if (merged.model === undefined) throw new FoomConfigError("no model configured");
+  if (merged.model === undefined) {
+    throw new FoomConfigError("no model configured");
+  }
   return merged.model;
 }
 
@@ -879,8 +916,8 @@ function openOptions(
   const merged = mergeConfigChain([runtime.defaults, runtime.classConfig, pickConfig(options)]);
   return {
     model,
-    ...(merged.skills !== undefined ? { skills: merged.skills } : {}),
-    ...(merged.plugins !== undefined ? { plugins: merged.plugins } : {}),
+    ...(merged.skills === undefined ? {} : { skills: merged.skills }),
+    ...(merged.plugins === undefined ? {} : { plugins: merged.plugins }),
   };
 }
 
@@ -931,7 +968,7 @@ function makeScope(
       span: spanId,
       name,
       kind: "scope",
-      ...(parent !== undefined ? { parent } : {}),
+      ...(parent === undefined ? {} : { parent }),
     });
   }
   // Turns on this scope (and `.with({ label })` variants) nest under the scope's
@@ -1028,7 +1065,9 @@ async function validateProgramInput(
   rawInput: unknown,
 ): Promise<unknown> {
   const inputSchema = (ProgramClass as unknown as { input?: StandardSchemaV1 }).input;
-  if (inputSchema === undefined) return rawInput;
+  if (inputSchema === undefined) {
+    return rawInput;
+  }
   const validated = await Promise.resolve(inputSchema["~standard"].validate(rawInput));
   if (validated.issues !== undefined) {
     throw new FoomInputError("program input failed its schema", { data: validated.issues });
@@ -1050,14 +1089,18 @@ function resolveDefaultHarness(options: RunProgramOptions): string | undefined {
       `defaultHarness "${explicit}" is not a registered harness (have: ${harnessNames.join(", ")})`,
     );
   }
-  if (explicit !== undefined) return explicit;
+  if (explicit !== undefined) {
+    return explicit;
+  }
   return harnessNames.length === 1 ? harnessNames[0] : undefined;
 }
 
 /** Race main() against the program's maxProgramDuration, always clearing the timer. */
 async function runWithProgramTimeout<T>(main: Promise<T>, maxDuration: string): Promise<T> {
   const ms = durationToMs(maxDuration as Parameters<typeof durationToMs>[0]);
-  if (ms === undefined) throw new FoomConfigError(`invalid maxProgramDuration: ${maxDuration}`);
+  if (ms === undefined) {
+    throw new FoomConfigError(`invalid maxProgramDuration: ${maxDuration}`);
+  }
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_resolve, reject) => {
     timer = setTimeout(() => reject(new FoomTimeoutError(`program exceeded ${maxDuration}`)), ms);
@@ -1065,7 +1108,9 @@ async function runWithProgramTimeout<T>(main: Promise<T>, maxDuration: string): 
   try {
     return await Promise.race([main, timeout]);
   } finally {
-    if (timer !== undefined) clearTimeout(timer);
+    if (timer !== undefined) {
+      clearTimeout(timer);
+    }
   }
 }
 
@@ -1075,7 +1120,7 @@ async function runWithProgramTimeout<T>(main: Promise<T>, maxDuration: string): 
  * listener, and return `main()`'s result. The top-level entry point the CLI and
  * embedders call.
  */
-export async function runProgram<P extends FoomProgram<never, unknown>>(
+async function runProgram<P extends FoomProgram<never, unknown>>(
   ProgramClass: abstract new () => P,
   rawInput: unknown,
   options: RunProgramOptions,
@@ -1088,7 +1133,7 @@ export async function runProgram<P extends FoomProgram<never, unknown>>(
   const classMeta = readClassMeta(instance);
   const defaultHarness = resolveDefaultHarness(options);
 
-  const defaults = options.defaults !== undefined ? pickConfig(options.defaults) : {};
+  const defaults = options.defaults === undefined ? {} : pickConfig(options.defaults);
   defaults.model ??= options.model;
   if (defaults.harness === undefined && defaultHarness !== undefined) {
     defaults.harness = defaultHarness;
@@ -1098,10 +1143,10 @@ export async function runProgram<P extends FoomProgram<never, unknown>>(
     instance,
     harnesses: options.harnesses,
     defaults,
-    classConfig: classMeta?.config !== undefined ? pickConfig(classMeta.config) : {},
+    classConfig: classMeta?.config === undefined ? {} : pickConfig(classMeta.config),
     exposed: exposedMethods(instance),
     derivations: new Map(),
-    ...(options.sourceFile !== undefined ? { sourceFile: options.sourceFile } : {}),
+    ...(options.sourceFile === undefined ? {} : { sourceFile: options.sourceFile }),
     className: options.className ?? instance.constructor.name,
     usage: emptyUsage,
     listeners: new Set(),
@@ -1119,7 +1164,9 @@ export async function runProgram<P extends FoomProgram<never, unknown>>(
 
   // Wire an external subscriber (CLI/harness renderer) before main() runs, so the
   // auto span tree is emitted from the first turn (F8).
-  if (options.onEvent !== undefined) runtime.listeners.add(options.onEvent);
+  if (options.onEvent !== undefined) {
+    runtime.listeners.add(options.onEvent);
+  }
 
   attachContext(instance, makeContext(runtime, {}));
 
@@ -1129,3 +1176,15 @@ export async function runProgram<P extends FoomProgram<never, unknown>>(
     .maxProgramDuration;
   return maxDuration === undefined ? main : runWithProgramTimeout(main, maxDuration);
 }
+
+export type {
+  AgentDoTemplate,
+  AgentProgramContext,
+  AgentProseTemplate,
+  AgentRun,
+  AgentScope,
+  AgentSession,
+  AgentValueTemplate,
+  RunProgramOptions,
+};
+export { attachContext, FoomProgram, Program, runProgram };

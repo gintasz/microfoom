@@ -21,20 +21,20 @@ interface TuiSnapshot {
   readonly error: string | undefined;
 }
 
-export interface TuiStore {
-  subscribe(listener: () => void): () => void;
-  getSnapshot(): TuiSnapshot;
+interface TuiStore {
+  subscribe: (listener: () => void) => () => void;
+  getSnapshot: () => TuiSnapshot;
   /** Feed one run event (coalesced into the next render tick). */
-  push(event: AgentEvent): void;
+  push: (event: AgentEvent) => void;
   /** Set run metadata (header). */
-  setMeta(meta: RunMeta): void;
+  setMeta: (meta: RunMeta) => void;
   /** Mark the run settled; the view stays up. */
-  done(result: string | undefined, error: string | undefined): void;
+  done: (result: string | undefined, error: string | undefined) => void;
 }
 
 const COALESCE_MS = 30;
 
-export function createStore(): TuiStore {
+function createStore(): TuiStore {
   let meta: RunMeta | undefined;
   const events: AgentEvent[] = [];
   let status: TuiSnapshot["status"] = "running";
@@ -47,7 +47,9 @@ export function createStore(): TuiStore {
 
   const rebuild = (): void => {
     snapshot = { meta, events: events.slice(), status, result, error };
-    for (const listener of listeners) listener();
+    for (const listener of listeners) {
+      listener();
+    }
   };
   // Coalesce bursts of stream deltas into one render tick.
   const schedule = (): void => {
@@ -75,12 +77,17 @@ export function createStore(): TuiStore {
       rebuild();
     },
     done(nextResult: string | undefined, nextError: string | undefined): void {
-      status = nextError !== undefined ? "error" : "done";
+      status = nextError === undefined ? "done" : "error";
       result = nextResult;
       error = nextError;
-      if (timer !== undefined) clearTimeout(timer);
+      if (timer !== undefined) {
+        clearTimeout(timer);
+      }
       timer = undefined;
       rebuild();
     },
   };
 }
+
+export type { TuiStore };
+export { createStore };

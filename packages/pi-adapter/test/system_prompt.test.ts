@@ -61,7 +61,7 @@ async function run(
   await runProgram(Greeter, "x", {
     harnesses: { pi: openSession },
     model,
-    ...(tools !== undefined ? { defaults: { tools } } : {}),
+    ...(tools === undefined ? {} : { defaults: { tools } }),
   });
 }
 

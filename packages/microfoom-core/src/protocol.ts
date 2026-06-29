@@ -5,7 +5,7 @@
 // parameter schema (ADR-0003).
 
 /** Reserved native tool names for the control tools. */
-export const CONTROL_TOOLS = {
+const CONTROL_TOOLS = {
   call: "foom_call",
   return: "foom_return",
   throw: "foom_throw",
@@ -14,25 +14,25 @@ export const CONTROL_TOOLS = {
 
 /** One of the four reserved control-tool names (`foom_call` / `foom_return` /
  *  `foom_throw` / `foom_inspect`). */
-export type ControlToolName = (typeof CONTROL_TOOLS)[keyof typeof CONTROL_TOOLS];
+type ControlToolName = (typeof CONTROL_TOOLS)[keyof typeof CONTROL_TOOLS];
 
 const CONTROL_TOOL_NAMES: ReadonlySet<string> = new Set(Object.values(CONTROL_TOOLS));
 
 /** True when a tool name is one of the reserved control tools. */
-export function isControlTool(name: string): name is ControlToolName {
+function isControlTool(name: string): name is ControlToolName {
   return CONTROL_TOOL_NAMES.has(name);
 }
 
 /** Code stamped on a `foom_throw` when the agent omits one (`foom_throw` `code`
  *  is optional). `foom_throw` still always carries a code (F7) — this is the fallback. */
-export const DEFAULT_THROW_CODE = "error_unspecified";
+const DEFAULT_THROW_CODE = "error_unspecified";
 
 /**
  * Agent-visible descriptions of the control tools (shown in the tool manifest).
  * Single-sourced here (I1) so the wording is consistent and reviewable, never
  * inline in the dispatcher.
  */
-export const CONTROL_TOOL_DESCRIPTIONS: Record<ControlToolName, string> = {
+const CONTROL_TOOL_DESCRIPTIONS: Record<ControlToolName, string> = {
   [CONTROL_TOOLS.call]:
     "Call an exposed microfoom method by name. `arguments` is an object of its parameters (learn it with foom_inspect).",
   [CONTROL_TOOLS.inspect]:
@@ -46,13 +46,13 @@ export const CONTROL_TOOL_DESCRIPTIONS: Record<ControlToolName, string> = {
  * Description for `foom_return` in a `do` turn — there is no value to return, so the
  * tool takes no arguments and merely signals the task is finished (mirrors `return;`).
  */
-export const DONE_RETURN_DESCRIPTION =
+const DONE_RETURN_DESCRIPTION =
   "Signal that this turn's task is complete. Call with NO arguments — this turn returns no value to the program. Do not write a prose summary.";
 
 /**
  * Per-control-tool usage blurb (promptSnippet) — keyed like the descriptions.
  */
-export const CONTROL_TOOL_SNIPPETS: Partial<Record<ControlToolName, string>> = {
+const CONTROL_TOOL_SNIPPETS: Partial<Record<ControlToolName, string>> = {
   // [CONTROL_TOOLS.call]: "If you don't already know a method's argument schema, call foom_inspect on it first.",
   // [CONTROL_TOOLS.inspect]: "Use this method to learn a microfoom method's argument schema before calling it with foom_call"
 };
@@ -60,7 +60,7 @@ export const CONTROL_TOOL_SNIPPETS: Partial<Record<ControlToolName, string>> = {
 /**
  * Per-control-tool usage rules (promptGuidelines) — keyed like the descriptions.
  */
-export const CONTROL_TOOL_GUIDELINES: Partial<Record<ControlToolName, readonly string[]>> = {};
+const CONTROL_TOOL_GUIDELINES: Partial<Record<ControlToolName, readonly string[]>> = {};
 
 /**
  * Every tool-result string the model can read back — repair hints and terminal
@@ -69,7 +69,7 @@ export const CONTROL_TOOL_GUIDELINES: Partial<Record<ControlToolName, readonly s
  * already-formatted validation issues. (Developer-facing exception messages are
  * NOT here — those live with the error taxonomy and the agent never sees them.)
  */
-export const TOOL_RESULTS = {
+const TOOL_RESULTS = {
   notExposed: (method: string): string => `Method "${method}" is not exposed.`,
   invalidArguments: (detail: string): string => `Invalid arguments: ${detail}`,
   invalidReturn: (detail: string): string => `Invalid return value: ${detail}`,
@@ -81,3 +81,15 @@ export const TOOL_RESULTS = {
   missingDone:
     "You did not call foom_return. Call foom_return now (with no arguments) to confirm the task is complete — or foom_throw if you cannot complete it or the instructions are defective or contradictory.",
 } as const;
+
+export type { ControlToolName };
+export {
+  CONTROL_TOOL_DESCRIPTIONS,
+  CONTROL_TOOL_GUIDELINES,
+  CONTROL_TOOL_SNIPPETS,
+  CONTROL_TOOLS,
+  DEFAULT_THROW_CODE,
+  DONE_RETURN_DESCRIPTION,
+  isControlTool,
+  TOOL_RESULTS,
+};

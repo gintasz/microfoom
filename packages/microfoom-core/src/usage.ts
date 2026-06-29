@@ -11,7 +11,7 @@
  * the provider does not report them; `costUsd` is absent when pricing is
  * underivable (and then a cost cap fails fast at setup — F5).
  */
-export interface AgentUsage {
+interface AgentUsage {
   inputTokens: number;
   outputTokens: number;
   totalTokens: number;
@@ -26,7 +26,7 @@ export interface AgentUsage {
 }
 
 /** Internal accounting carrier — the monoid operates on this (no timestamps). */
-export interface UsageAccount {
+interface UsageAccount {
   inputTokens: number;
   outputTokens: number;
   totalTokens: number;
@@ -38,7 +38,7 @@ export interface UsageAccount {
 }
 
 /** The zero account — identity of `combineUsage`. */
-export const emptyUsage: UsageAccount = {
+const emptyUsage: UsageAccount = {
   inputTokens: 0,
   outputTokens: 0,
   totalTokens: 0,
@@ -62,7 +62,7 @@ function addCost(a: number | undefined, b: number | undefined): number | undefin
 }
 
 /** Combine two accounts. Associative, with `emptyUsage` as identity (Q6). */
-export function combineUsage(a: UsageAccount, b: UsageAccount): UsageAccount {
+function combineUsage(a: UsageAccount, b: UsageAccount): UsageAccount {
   return {
     inputTokens: a.inputTokens + b.inputTokens,
     outputTokens: a.outputTokens + b.outputTokens,
@@ -76,7 +76,7 @@ export function combineUsage(a: UsageAccount, b: UsageAccount): UsageAccount {
 }
 
 /** One harness-reported turn (delta) as an account: one call, at the given depth. */
-export function accountFromDelta(
+function accountFromDelta(
   delta: {
     readonly inputTokens: number;
     readonly outputTokens: number;
@@ -100,14 +100,14 @@ export function accountFromDelta(
 }
 
 /** Optional timestamps/duration the runtime stamps onto the projected usage. */
-export interface UsageTimes {
+interface UsageTimes {
   startedAt?: Date;
   updatedAt?: Date;
   durationMs?: number;
 }
 
 /** Project the internal account to the public, compacted AgentUsage (T5). */
-export function toAgentUsage(account: UsageAccount, times?: UsageTimes): AgentUsage {
+function toAgentUsage(account: UsageAccount, times?: UsageTimes): AgentUsage {
   const usage: AgentUsage = {
     inputTokens: account.inputTokens,
     outputTokens: account.outputTokens,
@@ -115,11 +115,26 @@ export function toAgentUsage(account: UsageAccount, times?: UsageTimes): AgentUs
     calls: account.calls,
     maxCallDepth: account.maxCallDepth,
   };
-  if (account.reasoningTokens !== undefined) usage.reasoningTokens = account.reasoningTokens;
-  if (account.cachedInputTokens !== undefined) usage.cachedInputTokens = account.cachedInputTokens;
-  if (account.costUsd !== undefined) usage.costUsd = account.costUsd;
-  if (times?.startedAt !== undefined) usage.startedAt = times.startedAt;
-  if (times?.updatedAt !== undefined) usage.updatedAt = times.updatedAt;
-  if (times?.durationMs !== undefined) usage.durationMs = times.durationMs;
+  if (account.reasoningTokens !== undefined) {
+    usage.reasoningTokens = account.reasoningTokens;
+  }
+  if (account.cachedInputTokens !== undefined) {
+    usage.cachedInputTokens = account.cachedInputTokens;
+  }
+  if (account.costUsd !== undefined) {
+    usage.costUsd = account.costUsd;
+  }
+  if (times?.startedAt !== undefined) {
+    usage.startedAt = times.startedAt;
+  }
+  if (times?.updatedAt !== undefined) {
+    usage.updatedAt = times.updatedAt;
+  }
+  if (times?.durationMs !== undefined) {
+    usage.durationMs = times.durationMs;
+  }
   return usage;
 }
+
+export type { AgentUsage, UsageAccount };
+export { accountFromDelta, combineUsage, emptyUsage, toAgentUsage };

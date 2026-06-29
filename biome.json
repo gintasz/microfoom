@@ -28,22 +28,47 @@
     "rules": {
       "preset": "recommended",
       "complexity": {
-        "noExcessiveCognitiveComplexity": "error"
+        "noExcessiveCognitiveComplexity": "error",
+        "noUselessUndefined": "error",
+        "noVoid": "error",
+        "useMaxParams": {
+          "level": "error",
+          "options": { "max": 7 }
+        }
       },
       "suspicious": {
         "noExplicitAny": "error",
         "noEvolvingTypes": "error",
-        "noConsole": "error"
+        "noConsole": "error",
+        "noShadow": "error",
+        "noEmptyBlockStatements": "error"
       },
       "correctness": {
-        "noUndeclaredDependencies": "error"
+        "noUndeclaredDependencies": "error",
+        "noProcessGlobal": "error"
       },
       "performance": {
-        "noReExportAll": "error"
+        "noReExportAll": "error",
+        "noDelete": "error",
+        "noBarrelFile": "error",
+        "useTopLevelRegex": "error",
+        "noNamespaceImport": "error"
       },
       "style": {
         "noNonNullAssertion": "error",
         "useImportType": "error",
+        "useErrorCause": "error",
+        "useBlockStatements": "error",
+        "noNestedTernary": "error",
+        "noNegationElse": "error",
+        "useExportsLast": "error",
+        "useNumericSeparators": "error",
+        "useDestructuring": "error",
+        "noIncrementDecrement": "error",
+        "noImplicitBoolean": "error",
+        "noDefaultExport": "error",
+        "useConsistentMethodSignatures": "error",
+        "noMagicNumbers": "error",
         "useConsistentMemberAccessibility": {
           "level": "error",
           "options": { "accessibility": "explicit" }
@@ -79,7 +104,7 @@
   },
   "overrides": [
     {
-      "includes": ["packages/*/test/**", "examples/**"],
+      "includes": ["packages/*/test/**", "examples/**", "scripts/**"],
       "linter": {
         "rules": {
           "complexity": {
@@ -88,18 +113,40 @@
           "style": {
             "useConsistentMemberAccessibility": "off",
             "useNamingConvention": "off",
-            "noProcessEnv": "off"
+            "noProcessEnv": "off",
+            "noMagicNumbers": "off",
+            "noDefaultExport": "off"
           },
           "suspicious": {
             "noConsole": "off"
           },
           "correctness": {
-            "noUndeclaredDependencies": "off"
+            "noUndeclaredDependencies": "off",
+            "noProcessGlobal": "off"
+          },
+          "performance": {
+            "noNamespaceImport": "off"
           },
           "nursery": {
             "noFloatingPromises": "off",
             "useExplicitType": "off"
           }
+        }
+      }
+    },
+    {
+      "includes": ["**/*.config.ts", "eslint.config.js"],
+      "linter": {
+        "rules": {
+          "style": { "noDefaultExport": "off" }
+        }
+      }
+    },
+    {
+      "includes": ["packages/*/src/index.ts"],
+      "linter": {
+        "rules": {
+          "performance": { "noBarrelFile": "off" }
         }
       }
     },

@@ -10,12 +10,12 @@ import { register } from "tsx/esm/api";
 
 /** The constructor of a loadable program — a class extending `FoomProgram`.
  *  The CLI loader resolves a module's program export to this. */
-export type ProgramClass = abstract new () => FoomProgram<never, unknown>;
+type ProgramClass = abstract new () => FoomProgram<never, unknown>;
 
 let registered = false;
 
 /** Import `sourceFile` and return its default-exported program class. */
-export async function loadProgram(sourceFile: string): Promise<ProgramClass> {
+async function loadProgram(sourceFile: string): Promise<ProgramClass> {
   if (!registered) {
     register();
     registered = true;
@@ -27,3 +27,6 @@ export async function loadProgram(sourceFile: string): Promise<ProgramClass> {
   }
   return program as ProgramClass;
 }
+
+export type { ProgramClass };
+export { loadProgram };

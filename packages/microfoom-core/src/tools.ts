@@ -43,7 +43,7 @@ import { formatIssues, standardInputJsonSchema } from "./standard_schema.js";
 import { accountFromDelta, type UsageAccount } from "./usage.js";
 
 /** Per-run dispatch surface the coordinator needs (built by the program facade). */
-export interface ProgramTurnContext {
+interface ProgramTurnContext {
   /** Invoke an exposed method with a raw args object; throws on method failure. */
   readonly invoke: (method: string, args: unknown) => Promise<string>;
   /** True if the method is exposed (agent-callable). */
@@ -68,19 +68,19 @@ export interface ProgramTurnContext {
 
 /** How a turn ends: streamed prose (`text`), a schema-validated value, or `do` —
  *  act via tools and terminate with a no-arg foom_return (no value, cheap). */
-export type TurnMode =
+type TurnMode =
   | { readonly kind: "text" }
   | { readonly kind: "value"; readonly schema: StandardSchemaV1 }
   | { readonly kind: "do" };
 
 /** What a turn produced. */
-export type TurnOutcome =
+type TurnOutcome =
   | { readonly kind: "text"; readonly text: string }
   | { readonly kind: "value"; readonly value: unknown }
   | { readonly kind: "do" };
 
 /** Effective caps for a turn (already cascaded/resolved). */
-export interface ResolvedCaps {
+interface ResolvedCaps {
   readonly maxBudgetUsd?: number;
   readonly maxOutputTokens?: number;
   readonly maxCallDepth?: number;
@@ -134,8 +134,9 @@ function callTool(d: ToolDeps): NeutralToolDef {
     ]),
     execute: async (args: unknown): Promise<ToolExecResult> => {
       const method = field(args, "method");
-      if (typeof method !== "string")
+      if (typeof method !== "string") {
         return d.miss(TOOL_RESULTS.invalidArguments("`method` must be a string"), "args");
+      }
       return d.dispatch(method, field(args, "arguments") ?? {});
     },
   };
@@ -152,9 +153,12 @@ function inspectTool(d: ToolDeps): NeutralToolDef {
     // eslint-disable-next-line @typescript-eslint/require-await -- async satisfies the Tool `execute` port (Promise<ToolExecResult>); foom_inspect is synchronous.
     execute: async (args: unknown): Promise<ToolExecResult> => {
       const method = field(args, "method");
-      if (typeof method !== "string")
+      if (typeof method !== "string") {
         return d.miss(TOOL_RESULTS.invalidArguments("`method` must be a string"), "args");
-      if (!d.ctx.isExposed(method)) return d.miss(TOOL_RESULTS.notExposed(method), "dispatch");
+      }
+      if (!d.ctx.isExposed(method)) {
+        return d.miss(TOOL_RESULTS.notExposed(method), "dispatch");
+      }
       return ok(JSON.stringify(d.ctx.paramSchema(method) ?? { type: "object" }));
     },
   };
@@ -230,8 +234,8 @@ function tierTools(d: ToolDeps): NeutralToolDef[] {
   return d.ctx.toolTierMethods.map((method) => ({
     name: method.name,
     description: method.description,
-    ...(method.promptSnippet !== undefined ? { promptSnippet: method.promptSnippet } : {}),
-    ...(method.promptGuidelines !== undefined ? { promptGuidelines: method.promptGuidelines } : {}),
+    ...(method.promptSnippet === undefined ? {} : { promptSnippet: method.promptSnippet }),
+    ...(method.promptGuidelines === undefined ? {} : { promptGuidelines: method.promptGuidelines }),
     parameters: d.ctx.paramSchema(method.name) ?? { type: "object" },
     execute: async (args: unknown): Promise<ToolExecResult> => d.dispatch(method.name, args),
   }));
@@ -272,9 +276,9 @@ function buildTurnTools(
       // per-method schema isn't advertised upfront). Only when a schema exists.
       const schema = ctx.paramSchema(method);
       const detail =
-        schema !== undefined
-          ? `${formatIssues(issues)}. Expected schema: ${JSON.stringify(schema)}`
-          : formatIssues(issues);
+        schema === undefined
+          ? formatIssues(issues)
+          : `${formatIssues(issues)}. Expected schema: ${JSON.stringify(schema)}`;
       return repairableThenMaybeStop(TOOL_RESULTS.invalidArguments(detail), "args");
     }
     emitter.emit?.({ type: "foom_call", span: emitter.span, method });
@@ -297,8 +301,11 @@ function buildTurnTools(
 
   const deps: ToolDeps = { ctx, capture, dispatch, miss: repairableThenMaybeStop };
   const tools = [callTool(deps), inspectTool(deps), throwTool(deps)];
-  if (mode.kind === "value") tools.push(valueReturnTool(mode.schema, deps));
-  else if (mode.kind === "do") tools.push(doReturnTool(deps));
+  if (mode.kind === "value") {
+    tools.push(valueReturnTool(mode.schema, deps));
+  } else if (mode.kind === "do") {
+    tools.push(doReturnTool(deps));
+  }
   tools.push(...tierTools(deps));
   return tools;
 }
@@ -342,7 +349,7 @@ function enforceCaps(caps: ResolvedCaps, usage: UsageAccount): void {
 }
 
 /** Parameters for one coordinated turn. */
-export interface RunTurnParams {
+interface RunTurnParams {
   readonly session: HarnessSession;
   readonly systemPrompt: string;
   readonly prompt: string;
@@ -376,13 +383,21 @@ function buildTurnRequest(
     prompt: params.prompt,
     tools,
   };
-  if (params.thinking !== undefined) request.thinking = params.thinking;
-  if (params.tools !== undefined) request.allowedTools = params.tools;
-  if (params.omitBasePrompt !== undefined) request.omitBasePrompt = params.omitBasePrompt;
+  if (params.thinking !== undefined) {
+    request.thinking = params.thinking;
+  }
+  if (params.tools !== undefined) {
+    request.allowedTools = params.tools;
+  }
+  if (params.omitBasePrompt !== undefined) {
+    request.omitBasePrompt = params.omitBasePrompt;
+  }
   if (params.caps.maxOutputTokens !== undefined) {
     request.maxOutputTokens = params.caps.maxOutputTokens;
   }
-  if (params.signal !== undefined) request.signal = params.signal;
+  if (params.signal !== undefined) {
+    request.signal = params.signal;
+  }
   return request;
 }
 
@@ -442,15 +457,19 @@ function settleOutcome(
   mode: RunTurnParams["mode"],
   assistantText: string,
 ): TurnOutcome | undefined {
-  if (capture.fatal !== undefined) throw capture.fatal;
+  if (capture.fatal !== undefined) {
+    throw capture.fatal;
+  }
   if (capture.thrown !== undefined) {
     throw new FoomThrowError(capture.thrown.message, capture.thrown.code);
   }
-  if (mode.kind === "text") return { kind: "text", text: assistantText };
+  if (mode.kind === "text") {
+    return { kind: "text", text: assistantText };
+  }
   if (capture.has) {
     return mode.kind === "do" ? { kind: "do" } : { kind: "value", value: capture.value };
   }
-  return undefined;
+  return;
 }
 
 /**
@@ -501,7 +520,9 @@ async function runTurnWithRepair(
     enforceCaps(params.caps, params.fold(accountFromDelta(result.usage, params.ctx.depth())));
 
     const outcome = settleOutcome(capture, params.mode, result.assistantText);
-    if (outcome !== undefined) return outcome;
+    if (outcome !== undefined) {
+      return outcome;
+    }
 
     if (attempt >= params.caps.repairAttempts) {
       throw new FoomRepairExhaustedError(
@@ -522,7 +543,7 @@ async function runTurnWithRepair(
  * executes the FOOM tools; this interprets the captured outcome. Shared by the pi
  * session and the fake test session.
  */
-export async function runProgramTurn(params: RunTurnParams): Promise<TurnOutcome> {
+async function runProgramTurn(params: RunTurnParams): Promise<TurnOutcome> {
   if (params.caps.maxCallDepth !== undefined && params.ctx.depth() > params.caps.maxCallDepth) {
     throw new FoomCallDepthError(
       `call depth ${params.ctx.depth()} exceeds maxCallDepth ${params.caps.maxCallDepth}`,
@@ -532,7 +553,7 @@ export async function runProgramTurn(params: RunTurnParams): Promise<TurnOutcome
   const repair = { count: 0 };
   const emitter: Emitter = {
     span: params.span ?? "turn",
-    ...(params.emit !== undefined ? { emit: params.emit } : {}),
+    ...(params.emit === undefined ? {} : { emit: params.emit }),
   };
   const tools = buildTurnTools(
     params.ctx,
@@ -553,3 +574,6 @@ export async function runProgramTurn(params: RunTurnParams): Promise<TurnOutcome
 
   return runTurnWithRepair(params, request, capture, emitter);
 }
+
+export type { ProgramTurnContext, ResolvedCaps, RunTurnParams, TurnMode, TurnOutcome };
+export { runProgramTurn };

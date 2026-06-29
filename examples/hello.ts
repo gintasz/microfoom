@@ -10,6 +10,7 @@
 //   microfoom run examples/hello.ts Ada
 // (needs a model + API key in ~/.pi; see examples/README.md)
 
+import process from "node:process";
 import { foom, Program } from "@microfoom/core";
 import { z } from "zod";
 
