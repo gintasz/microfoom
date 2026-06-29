@@ -24,8 +24,8 @@ Both put real control flow around the model instead of trusting one prompt. Coor
 Microfoom is the toolkit for writing coordination scripts.
 
 - **Cross-harness** — compose agents running on different model harnesses in one script.
-- **Cross-session** — ???
-- **Cross-model** — ???
+- **Cross-session** — run parallel sessions, and `fork()` any one to branch its transcript, all coordinated in a single script.
+- **Cross-model** — route each turn to a different model: cheap for the easy steps, frontier for the hard one.
 - **Lean & ergonomic API** — a handful of primitives; as easy to read as it is to write.
 - **Schema-validated** — structured turns return typed, validated values; malformed output is auto-repaired, then fails loudly.
 - **Traced out of the box** — every span, turn, and token is captured as a tree you can inspect, for the terminal UI or your own exporter.
