@@ -412,17 +412,23 @@ interface Prepared {
   readonly retries?: number;
 }
 
-function prepare(runtime: Runtime, options: AgentOptions): Prepared {
-  const scopes = [
-    runtime.defaults,
-    runtime.classConfig,
-    runtime.methodConfig,
-    pickConfig(options),
-  ].filter((c): c is AgentConfig => c !== undefined);
-  const merged = mergeConfigChain(scopes);
-  if (merged.model === undefined) {
-    throw new FoomtimeConfigError("no model configured (set it via run options or @foom.config)");
-  }
+/**
+ * Identity fixed when a session() opens: the composed program system prompt and the
+ * base-prompt omission. Frozen at open and re-applied verbatim to every turn of the
+ * session, so a later method scope or `.with()` can't drift it mid-conversation — the
+ * per-harness mid-session-identity footgun (pi re-applies a changed prompt, claudecli
+ * silently keeps the original via --resume). Stateless turns pass no frozen identity:
+ * each opens a fresh session, so they vary freely.
+ */
+interface FrozenIdentity {
+  readonly systemPrompt: string;
+  readonly omitBasePrompt?: boolean;
+}
+
+/** Compose the program system prompt: the runtime notice block (intro + foom_call
+ *  announcements) plus the dev's own systemPrompt from the merged cascade. The dev's
+ *  prompt stays OUTSIDE the begin/end notice block. */
+function composeProgramSystemPrompt(runtime: Runtime, merged: AgentConfig): string {
   const announcements: string[] = [];
   for (const [name, meta] of runtime.exposed) {
     if (meta.tier === "announcement" && meta.announcement !== undefined) {
@@ -435,27 +441,94 @@ function prepare(runtime: Runtime, options: AgentOptions): Prepared {
       : "append" in merged.systemPrompt
         ? merged.systemPrompt.append
         : merged.systemPrompt.replace;
-  // The runtime block: intro + (when any) the foom_call announcements, all inside
-  // one begin/end notice. The dev's own systemPrompt stays OUTSIDE the block.
   const runtimeBody =
     announcements.length > 0
       ? `${PROTOCOL_INTRO}\n\nMethods you may call via foom_call:\n${announcements.join("\n")}`
       : PROTOCOL_INTRO;
-  const systemPrompt = [noticeBlock(runtimeBody), userPrompt]
-    .filter((part) => part.length > 0)
-    .join("\n\n");
+  return [noticeBlock(runtimeBody), userPrompt].filter((part) => part.length > 0).join("\n\n");
+}
+
+/**
+ * Merge the cascade for one turn. When `frozen` is present (a stateful session) it
+ * supplies the session-locked systemPrompt/omitBasePrompt verbatim; otherwise they
+ * are composed from this turn's merged config (a stateless turn opens a fresh session,
+ * so its identity is this turn's cascade). The per-turn fields (thinking, tools, caps,
+ * retries) always come from the live merge — they are free to vary on a session.
+ */
+function prepare(runtime: Runtime, options: AgentOptions, frozen?: FrozenIdentity): Prepared {
+  const scopes = [
+    runtime.defaults,
+    runtime.classConfig,
+    runtime.methodConfig,
+    pickConfig(options),
+  ].filter((c): c is AgentConfig => c !== undefined);
+  const merged = mergeConfigChain(scopes);
+  if (merged.model === undefined) {
+    throw new FoomtimeConfigError("no model configured (set it via run options or @foom.config)");
+  }
+  const systemPrompt =
+    frozen !== undefined ? frozen.systemPrompt : composeProgramSystemPrompt(runtime, merged);
+  const omitBasePrompt =
+    frozen !== undefined ? frozen.omitBasePrompt : merged.omitHarnessBasePrompt;
   const prepared: Prepared = {
     model: merged.model,
     systemPrompt,
     caps: resolveCaps(merged),
     ...(merged.thinking !== undefined ? { thinking: merged.thinking } : {}),
     ...(merged.tools !== undefined ? { allowedTools: merged.tools } : {}),
-    ...(merged.omitHarnessBasePrompt !== undefined
-      ? { omitBasePrompt: merged.omitHarnessBasePrompt }
-      : {}),
+    ...(omitBasePrompt !== undefined ? { omitBasePrompt } : {}),
     ...(merged.retries !== undefined ? { retries: merged.retries } : {}),
   };
   return prepared;
+}
+
+/**
+ * Freeze a session's identity at open: compose its systemPrompt and capture
+ * omitHarnessBasePrompt from the scope chain live AT THIS MOMENT — so the method
+ * scope active when session() is called is baked in, and nothing applied afterward
+ * (a later method dispatch, or a per-turn .with()) can change it.
+ */
+function freezeIdentity(runtime: Runtime, options: AgentOptions): FrozenIdentity {
+  const scopes = [
+    runtime.defaults,
+    runtime.classConfig,
+    runtime.methodConfig,
+    pickConfig(options),
+  ].filter((c): c is AgentConfig => c !== undefined);
+  const merged = mergeConfigChain(scopes);
+  return {
+    systemPrompt: composeProgramSystemPrompt(runtime, merged),
+    ...(merged.omitHarnessBasePrompt !== undefined
+      ? { omitBasePrompt: merged.omitHarnessBasePrompt }
+      : {}),
+  };
+}
+
+/**
+ * Config fields fixed when a session() opens. A per-turn `.with()` on a session handle
+ * that sets any of these is a typed error: the transcript was produced under this
+ * identity, so swapping it mid-conversation diverges per harness and invalidates the
+ * cached prompt prefix. Vary them by opening a new session() or via a stateless
+ * this.agent turn instead.
+ */
+const SESSION_LOCKED_FIELDS: ReadonlyArray<keyof AgentOptions> = [
+  "model",
+  "harness",
+  "systemPrompt",
+  "omitHarnessBasePrompt",
+  "skills",
+  "plugins",
+];
+
+/** Reject a session `.with()` that tries to change any session-locked field. */
+function assertNoLockedChange(extra: AgentOptions): void {
+  const locked = SESSION_LOCKED_FIELDS.filter((field) => extra[field] !== undefined);
+  if (locked.length === 0) return;
+  const [subject, object] = locked.length === 1 ? ["it is", "it"] : ["they are", "them"];
+  throw new FoomtimeConfigError(
+    `cannot change ${locked.join(", ")} mid-session — ${subject} fixed when session() opens. ` +
+      `Open a new session(), or use a stateless this.agent turn, to vary ${object}.`,
+  );
 }
 
 function render(strings: TemplateStringsArray, values: readonly unknown[]): string {
@@ -570,6 +643,8 @@ interface DriveDeps {
   readonly options: AgentOptions;
   readonly source: SessionSource;
   readonly parentSpan: string | undefined;
+  /** A stateful session's locked identity; undefined for stateless turns. */
+  readonly frozen: FrozenIdentity | undefined;
 }
 
 /** Run one turn: open the session, emit the span, fold usage, settle the guard. */
@@ -580,8 +655,8 @@ async function driveTurn(
   signal: AbortSignal,
   onStreamChunk?: (chunk: string) => void,
 ): Promise<TurnOutcome> {
-  const { runtime, options, source, parentSpan } = deps;
-  const prepared = prepare(runtime, options);
+  const { runtime, options, source, parentSpan, frozen } = deps;
+  const prepared = prepare(runtime, options, frozen);
   const span = runtime.nextSpan();
   const traced = runtime.listeners.size > 0;
   // A turn is a span leaf: its usage is the real harness delta(s) folded here.
@@ -638,8 +713,9 @@ function makeRun(
   options: AgentOptions,
   source: SessionSource,
   parentSpan?: string,
+  frozen?: FrozenIdentity,
 ): AgentRun {
-  const deps: DriveDeps = { runtime, options, source, parentSpan };
+  const deps: DriveDeps = { runtime, options, source, parentSpan, frozen };
   // Reject overlapping turns on a stateful session before the turn starts;
   // driveTurn clears the in-flight flag when it settles.
   const begin = (): void => {
@@ -732,18 +808,24 @@ function sessionHandle(
   runtime: Runtime,
   options: AgentOptions,
   source: SessionSource,
+  frozen: FrozenIdentity,
 ): AgentSession {
-  const run = makeRun(runtime, options, source);
+  const run = makeRun(runtime, options, source, undefined, frozen);
   return {
     do: run.do,
     prose: run.prose,
     value: run.value,
-    // Same transcript, options layered: share the source (and its single-flight guard).
-    with: (extra: AgentOptions): AgentSession =>
-      sessionHandle(runtime, { ...options, ...extra }, source),
+    // Same transcript, options layered: share the source (and its single-flight guard)
+    // and the identity frozen at open. A .with() that tries to change a session-locked
+    // field is rejected — only the per-turn fields (thinking, tools, label, caps) layer.
+    with: (extra: AgentOptions): AgentSession => {
+      assertNoLockedChange(extra);
+      return sessionHandle(runtime, { ...options, ...extra }, source, frozen);
+    },
     // Branch the transcript into an independent session. Resolved on the fork's
     // first turn from the parent's transcript as it then stands; an unsupported
-    // harness surfaces FoomtimeConfigError.
+    // harness surfaces FoomtimeConfigError. The branch inherits the parent's frozen
+    // identity (a fork continues the same persona; open a new session() for a new one).
     fork: () =>
       sessionHandle(
         runtime,
@@ -755,6 +837,7 @@ function sessionHandle(
           }
           return parent.fork();
         }),
+        frozen,
       ),
     get usage(): AgentUsage {
       return readUsage(runtime);
@@ -767,10 +850,14 @@ function makeSession(runtime: Runtime, options: AgentOptions): AgentSession {
   // A session is one provider thread bound to one harness; resolve both once at
   // creation (a session never switches harness mid-conversation).
   const port = harnessPort(runtime, optionsHarness(runtime, options));
+  // Freeze the session's identity (systemPrompt + base-prompt omission) at open, so
+  // every turn re-applies the SAME prompt — no mid-session drift across harnesses.
+  const frozen = freezeIdentity(runtime, options);
   return sessionHandle(
     runtime,
     options,
     makeSource(async () => port(openOptions(runtime, model, options))),
+    frozen,
   );
 }
 

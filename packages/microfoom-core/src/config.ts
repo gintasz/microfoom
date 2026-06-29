@@ -51,8 +51,9 @@ export interface AgentConfig {
    *  model only microfoom's prompt (the runtime block + this config's
    *  {@link AgentConfig.systemPrompt}), not the adapter's persona/project context.
    *  Overrides the harness adapter's construction default; absent = inherit it.
-   *  Note: a stateful {@link AgentSession} re-applies this per turn on some harnesses
-   *  but not others — see the mid-session-identity caveat. */
+   *  Session-scoped: like {@link AgentConfig.systemPrompt}, it is frozen when a stateful
+   *  session opens and re-applied verbatim to every turn (a later scope can't drift it);
+   *  a stateless turn opens a fresh session, so it varies per turn. */
   omitHarnessBasePrompt?: boolean;
   /** Reasoning effort for the turn. One of the known {@link ThinkingLevel}s, or a
    *  provider-specific raw string passed through untouched. Absent = inherit (and,
@@ -73,7 +74,10 @@ export interface AgentConfig {
   // --- compose: append accumulates, replace resets ---
   /** This scope's contribution to the system prompt. {@link SystemPrompt} is either
    *  `{ append }` (accumulates onto wider scopes) or `{ replace }` (discards them
-   *  and becomes the new base). */
+   *  and becomes the new base). Session-scoped: the composed result is frozen when a
+   *  stateful session opens and re-applied to every turn — a per-turn `.with()` that
+   *  sets it on a session handle is a {@link FoomtimeConfigError}; vary it by opening a
+   *  new session() or via a stateless turn (which opens a fresh session each). */
   systemPrompt?: SystemPrompt;
   // --- cap: tightens only, never loosens ---
   /** Hard ceiling on run cost in USD; exceeding it aborts with
