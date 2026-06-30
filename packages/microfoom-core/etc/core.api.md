@@ -527,7 +527,7 @@ export interface ToolExecResult {
 
 // @public
 export type TurnOutcome = {
-    readonly kind: "text";
+    readonly kind: "prose";
     readonly text: string;
 } | {
     readonly kind: "value";

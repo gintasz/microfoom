@@ -30,7 +30,8 @@ Usage:
   microfoom <file> [input]            'run' is optional
 
 Options:
-  --harness <name>    harness to run on: claudecli | pi | fake (offline stub, no model)
+  --harness <name>    harness to run on: claudecli | codexcli | opencode | pi |
+                      fake (offline stub, no model)
   --omit-harness-prompt   send the model ONLY microfoom's prompt (drop the harness
                       base prompt — pi's coding-agent persona + project context)
   --model <id>        model id (default: $MICROFOOM_MODEL or a deepseek default)

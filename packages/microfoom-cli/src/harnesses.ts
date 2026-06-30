@@ -3,12 +3,17 @@
 // are available for this execution.
 
 import { createClaudeCliOpenSession } from "@microfoom/claudecli-adapter";
+import { createCodexCliOpenSession } from "@microfoom/codexcli-adapter";
 import type { OpenSession } from "@microfoom/core";
+import { createOpenCodeOpenSession } from "@microfoom/opencode-adapter";
 import { createPiOpenSession } from "@microfoom/pi-adapter";
 import { fakeOpenSession } from "./fake.js";
 
 const HARNESS_OPENERS: Record<string, (omitHarnessPrompt: boolean) => OpenSession> = {
   claudecli: () => createClaudeCliOpenSession(),
+  codexcli: () => createCodexCliOpenSession(),
+  opencode: (omitHarnessPrompt: boolean) =>
+    createOpenCodeOpenSession({ omitHarnessBasePrompt: omitHarnessPrompt }),
   pi: (omitHarnessPrompt: boolean) =>
     createPiOpenSession({ omitHarnessBasePrompt: omitHarnessPrompt }),
   fake: () => fakeOpenSession(),

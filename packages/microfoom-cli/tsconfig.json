@@ -9,5 +9,11 @@
     "types": ["node", "react"]
   },
   "include": ["src/**/*.ts", "src/**/*.tsx"],
-  "references": [{ "path": "../microfoom-core" }, { "path": "../pi-adapter" }]
+  "references": [
+    { "path": "../microfoom-core" },
+    { "path": "../claudecli-adapter" },
+    { "path": "../codexcli-adapter" },
+    { "path": "../opencode-adapter" },
+    { "path": "../pi-adapter" }
+  ]
 }

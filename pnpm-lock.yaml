@@ -143,9 +143,15 @@ importers:
       '@microfoom/claudecli-adapter':
         specifier: workspace:*
         version: link:../claudecli-adapter
+      '@microfoom/codexcli-adapter':
+        specifier: workspace:*
+        version: link:../codexcli-adapter
       '@microfoom/core':
         specifier: workspace:*
         version: link:../microfoom-core
+      '@microfoom/opencode-adapter':
+        specifier: workspace:*
+        version: link:../opencode-adapter
       '@microfoom/pi-adapter':
         specifier: workspace:*
         version: link:../pi-adapter
