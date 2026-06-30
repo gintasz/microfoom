@@ -1131,7 +1131,7 @@ function optionsHarness(runtime: Runtime, options: AgentOptions): string {
   );
   if (merged.harness === undefined) {
     throw new FoomConfigError(
-      "no harness selected (set defaultHarness in run options, or @foom.config({ harness }), or .with({ harness }))",
+      "no harness selected (set defaultHarness in run options, or @foom.config({ harness }), or .with({ harness }), or --harness on the CLI)",
     );
   }
   return merged.harness;
@@ -1255,7 +1255,9 @@ async function validateProgramInput(
   }
   const validated = await Promise.resolve(inputSchema["~standard"].validate(rawInput));
   if (validated.issues !== undefined) {
-    throw new FoomInputError("program input failed its schema", { data: validated.issues });
+    throw new FoomInputError("program input validation failed against its input schema", {
+      data: validated.issues,
+    });
   }
   return validated.value;
 }
