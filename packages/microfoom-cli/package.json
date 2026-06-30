@@ -47,7 +47,9 @@
   },
   "dependencies": {
     "@microfoom/claudecli-adapter": "workspace:*",
+    "@microfoom/codexcli-adapter": "workspace:*",
     "@microfoom/core": "workspace:*",
+    "@microfoom/opencode-adapter": "workspace:*",
     "@microfoom/pi-adapter": "workspace:*",
     "@opentui/core": "0.4.2",
     "@opentui/react": "0.4.2",

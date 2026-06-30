@@ -7,7 +7,13 @@ const inputSchema = z.string();
 
 describe("CLI harness selection", () => {
   it("bundles every manually registered CLI harness", () => {
-    expect(knownHarnessNames().toSorted()).toEqual(["claudecli", "fake", "pi"]);
+    expect(knownHarnessNames().toSorted()).toEqual([
+      "claudecli",
+      "codexcli",
+      "fake",
+      "opencode",
+      "pi",
+    ]);
   });
 
   it("lets a script select a harness when the CLI omits --harness", async () => {
@@ -43,7 +49,13 @@ describe("CLI harness selection", () => {
     if (harnesses === undefined) {
       throw new Error("expected fake harness to open");
     }
-    expect(Object.keys(harnesses).toSorted()).toEqual(["claudecli", "fake", "pi"]);
+    expect(Object.keys(harnesses).toSorted()).toEqual([
+      "claudecli",
+      "codexcli",
+      "fake",
+      "opencode",
+      "pi",
+    ]);
     await expect(
       runProgram(CliSelectedHarness, "Ada", {
         harnesses,
