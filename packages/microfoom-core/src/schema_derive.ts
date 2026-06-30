@@ -174,20 +174,63 @@ function findDefaultExportMain(source: ts.SourceFile): ts.MethodDeclaration | un
   return found;
 }
 
+const COMPILER_OPTIONS: ts.CompilerOptions = {
+  target: ts.ScriptTarget.ES2022,
+  module: ts.ModuleKind.ESNext,
+  moduleResolution: ts.ModuleResolutionKind.Bundler,
+  strict: true,
+  skipLibCheck: true,
+  noEmit: true,
+};
+
+// Creating a ts.Program loads the full TS standard library — seconds of cold
+// work. Derivation is pure given a file (see header), so memoise the result per
+// file and share one CompilerHost whose source files (lib.d.ts especially) are
+// cached, so that cost is paid once per process rather than once per call.
+// Without this, a suite deriving several methods — or running under coverage
+// with parallel workers — re-pays it every call and trips the test timeout.
+const sourceCache = new Map<string, { checker: ts.TypeChecker; source: ts.SourceFile }>();
+let compilerHost: ts.CompilerHost | undefined;
+
+function createCachingHost(): ts.CompilerHost {
+  const host = ts.createCompilerHost(COMPILER_OPTIONS);
+  const readSourceFile = host.getSourceFile.bind(host);
+  const fileCache = new Map<string, ts.SourceFile | undefined>();
+  host.getSourceFile = (
+    fileName: string,
+    languageVersionOrOptions: ts.ScriptTarget | ts.CreateSourceFileOptions,
+    onError?: (message: string) => void,
+    shouldCreateNewSourceFile?: boolean,
+  ): ts.SourceFile | undefined => {
+    if (fileCache.has(fileName)) {
+      return fileCache.get(fileName);
+    }
+    const sourceFile = readSourceFile(
+      fileName,
+      languageVersionOrOptions,
+      onError,
+      shouldCreateNewSourceFile,
+    );
+    fileCache.set(fileName, sourceFile);
+    return sourceFile;
+  };
+  return host;
+}
+
 function compileSource(filePath: string): { checker: ts.TypeChecker; source: ts.SourceFile } {
-  const program = ts.createProgram([filePath], {
-    target: ts.ScriptTarget.ES2022,
-    module: ts.ModuleKind.ESNext,
-    moduleResolution: ts.ModuleResolutionKind.Bundler,
-    strict: true,
-    skipLibCheck: true,
-    noEmit: true,
-  });
+  const cached = sourceCache.get(filePath);
+  if (cached !== undefined) {
+    return cached;
+  }
+  compilerHost ??= createCachingHost();
+  const program = ts.createProgram([filePath], COMPILER_OPTIONS, compilerHost);
   const source = program.getSourceFile(filePath);
   if (source === undefined) {
     throw new FoomConfigError(`Cannot read program source for derivation: ${filePath}`);
   }
-  return { checker: program.getTypeChecker(), source };
+  const result = { checker: program.getTypeChecker(), source };
+  sourceCache.set(filePath, result);
+  return result;
 }
 
 /** Validate a decoded arguments object against the derived param specs: one issue

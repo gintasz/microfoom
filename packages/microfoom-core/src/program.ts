@@ -825,6 +825,19 @@ function recallTurn(
   return { outcome: hit.outcome, account };
 }
 
+// Map a turn-body failure to the error to throw: a cancellation passes through, an
+// aborted signal reclassifies any error as cancellation, else the original error is
+// returned unchanged. The caller throws the result.
+function normalizeTurnError(error: unknown, signal: AbortSignal): unknown {
+  if (error instanceof FoomCancelledError) {
+    return error;
+  }
+  if (signal.aborted) {
+    return new FoomCancelledError("the agent run was aborted", { cause: error });
+  }
+  return error;
+}
+
 /** Run one turn: open the session, emit the span, fold usage, settle the guard. */
 async function driveTurn(
   deps: DriveDeps,
@@ -900,13 +913,7 @@ async function driveTurn(
     }
     return outcome;
   } catch (error) {
-    if (error instanceof FoomCancelledError) {
-      throw error;
-    }
-    if (signal.aborted) {
-      throw new FoomCancelledError("the agent run was aborted", { cause: error });
-    }
-    throw error;
+    throw normalizeTurnError(error, signal);
   } finally {
     if (traced && span !== undefined) {
       emitTurnEnd(runtime, span, startedAt, turnDelta);
