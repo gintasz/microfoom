@@ -5,7 +5,7 @@
     "//#typecheck": { "cache": false },
     "//#format:check": { "cache": false },
     "//#lint": { "cache": false },
-    "//#lint:types": { "cache": false },
+    "//#lint:types": { "cache": false, "dependsOn": ["//#typecheck"] },
     "//#arch": { "cache": false },
     "//#ast": { "cache": false },
     "//#spell": { "cache": false },
