@@ -176,9 +176,10 @@ A whole-program wall-clock ceiling is a `static maxProgramDuration` on the progr
 
 A harness is the model-loop adapter a turn runs on. Microfoom ships two:
 
-- **pi** ([`@microfoom/pi-adapter`](packages/pi-adapter)) — runs on the [pi](https://www.npmjs.com/package/@earendil-works/pi-agent-core) agent SDK; resolves model/auth from `~/.pi`.
-- **claudecli** ([`@microfoom/claudecli-adapter`](packages/claudecli-adapter)) — drives the headless `claude` CLI (`claude -p`) via an in-process MCP server.
-- **codexcli** ([`@microfoom/codexcli-adapter`](packages/codexcli-adapter)) — drives the headless `codex` CLI via an in-process MCP server. Note: `maxBudgetUsd`, `omitBasePrompt`, `maxOutputTokens`, `plugins`, `allowedTools` — ignored, no effect. Also, no token-level streaming (live TUI = chunky for codex).
+- **pi** ([`@microfoom/pi-adapter`](packages/pi-adapter)) (recommended) — runs on the [Pi](https://www.npmjs.com/package/@earendil-works/pi-agent-core) agent SDK; resolves model/auth from `~/.pi`.
+- **claudecli** ([`@microfoom/claudecli-adapter`](packages/claudecli-adapter)) (experimental) — drives the headless `claude` CLI (`claude -p`) via an in-process MCP server.
+- **codexcli** ([`@microfoom/codexcli-adapter`](packages/codexcli-adapter)) (experimental) — drives the headless `codex` CLI via an in-process MCP server. Note: `maxBudgetUsd`, `omitBasePrompt`, `maxOutputTokens`, `plugins`, `allowedTools` — ignored, no effect. Also, no token-level streaming.
+- **opencode** ([`@microfoom/opencode-adapter`](packages/opencode-adapter)) (experimental, not recommended) — runs on [opencode](https://github.com/anomalyco/opencode). Note: `maxOutputTokens` — ignored, no effect; `plugins` needs more testing. Also, no token-level streaming. You might better use Pi instead of this, didn't test it much.
 
 Register the harnesses you want under names, then select per scope via `@foom.config({ harness })` / `.with({ harness })`:
 

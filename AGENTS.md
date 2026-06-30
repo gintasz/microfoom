@@ -1,12 +1,9 @@
 # Setup — do this FIRST in any fresh checkout or worktree
-
 A new git worktree has **no `node_modules`**. Before editing, building, or committing, bootstrap it:
 
 ```bash
 corepack pnpm install --frozen-lockfile
 ```
-
-Skipping this breaks everything downstream: the pre-commit git hook can't find `lefthook`, falls through its discovery chain, and runs an unrelated `mint` binary that fails with a cryptic error — and no toolchain (tsc/biome/eslint) is present for the checks. One install fixes all of it (≈4s, shared pnpm store).
 
 # Core vs. Adapter
 To support future agent harnesses, microfoom core MUST house all reusable language/runtime logic, while the harness adapter and frontends (like `@microfoom/pi-adapter` and `@microfoom/cli`) contain only the bare minimum glue code.
