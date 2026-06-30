@@ -174,14 +174,16 @@ A whole-program wall-clock ceiling is a `static maxProgramDuration` on the progr
 
 ## Harnesses
 
-A harness is the model-loop adapter a turn runs on. Microfoom ships two:
+A harness is the model-loop adapter a turn runs on.
 
-- **pi** ([`@microfoom/pi-adapter`](packages/pi-adapter)) (recommended) — runs on the [Pi](https://www.npmjs.com/package/@earendil-works/pi-agent-core) agent SDK; resolves model/auth from `~/.pi`.
-- **claudecli** ([`@microfoom/claudecli-adapter`](packages/claudecli-adapter)) (experimental) — drives the headless `claude` CLI (`claude -p`) via an in-process MCP server.
-- **codexcli** ([`@microfoom/codexcli-adapter`](packages/codexcli-adapter)) (experimental) — drives the headless `codex` CLI via an in-process MCP server. Note: `maxBudgetUsd`, `omitBasePrompt`, `maxOutputTokens`, `plugins`, `allowedTools` — ignored, no effect. Also, no token-level streaming.
-- **opencode** ([`@microfoom/opencode-adapter`](packages/opencode-adapter)) (experimental, not recommended) — runs on [opencode](https://github.com/anomalyco/opencode). Note: `maxOutputTokens` — ignored, no effect; `plugins` needs more testing. Also, no token-level streaming. You might better use Pi instead of this, didn't test it much.
+| Harness | Status | Notes |
+| --- | --- | --- |
+| **pi** ([`@microfoom/pi-adapter`](packages/pi-adapter)) | recommended | Runs on the [Pi](https://www.npmjs.com/package/@earendil-works/pi-agent-core) agent SDK; resolves model/auth from `~/.pi`. Full feature support. |
+| **claudecli** ([`@microfoom/claudecli-adapter`](packages/claudecli-adapter)) | experimental | Drives the headless `claude` CLI (`claude -p`) via an in-process MCP server. |
+| **codexcli** ([`@microfoom/codexcli-adapter`](packages/codexcli-adapter)) | experimental | Drives the headless `codex` CLI via an in-process MCP server. Ignores `maxBudgetUsd`, `omitBasePrompt`, `maxOutputTokens`, `plugins`, `allowedTools`; no token-level streaming. |
+| **opencode** ([`@microfoom/opencode-adapter`](packages/opencode-adapter)) | experimental, not recommended | Runs on [opencode](https://github.com/anomalyco/opencode). Ignores `maxOutputTokens`; `plugins` needs more testing; no token-level streaming; barely tested — prefer pi. |
 
-Register the harnesses you want under names, then select per scope via `@foom.config({ harness })` / `.with({ harness })`:
+Register the harnesses you want under names, then select per scope via `@foom.config({ harness })` / `.with({ harness })`.
 
 
 ## Run it
@@ -191,7 +193,7 @@ The CLI runs a program file with zero boilerplate — model/auth resolved from t
 ```sh
 microfoom run ./researcher.ts "tides"
 microfoom run ./researcher.ts "tides" --json        # result as JSON
-microfoom run ./researcher.ts "tides" --harness fake # offline, deterministic, no model
+microfoom run ./researcher.ts "tides" --harness pi # 
 microfoom run ./researcher.ts "tides" --store ./.microfoom/tides.jsonl  # store agent turn outcomes, re-run the same command to resume
 ```
 
