@@ -8,24 +8,18 @@ import { isAbsolute, resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
-import { createFileTurnStore, type OpenSession, runProgram, type TurnStore } from "@microfoom/core";
+import { createFileTurnStore, runProgram, type TurnStore } from "@microfoom/core";
 import type { AgentEvent } from "@microfoom/core/trace";
-import { createPiOpenSession } from "@microfoom/pi-adapter";
 import { createCliRenderer } from "@opentui/core";
 import { createRoot } from "@opentui/react";
 import { modelFromEnv, tuiThemeFromEnv } from "./env.js";
-import { fakeOpenSession } from "./fake.js";
+import { openHarnessRegistry } from "./harnesses.js";
 import { App } from "./tui/app.js";
 import { RERUN_EXIT_CODE } from "./tui/rerun.js";
 import { createStore } from "./tui/store.js";
 import { paletteFor, type ThemeMode } from "./tui/theme.js";
 
 const THEME_QUERY_TIMEOUT_MS = 300;
-
-const HARNESSES: Record<string, () => OpenSession> = {
-  pi: createPiOpenSession,
-  fake: fakeOpenSession,
-};
 
 function parseInput(raw: string): unknown {
   const trimmed = raw.trim();
@@ -40,18 +34,6 @@ function parseInput(raw: string): unknown {
     }
   }
   return trimmed;
-}
-
-/** Open a session on the named harness (pi gets the omit-base-prompt option), or
- *  undefined when the name isn't a known harness. */
-function openTuiHarness(harnessName: string, omitHarnessPrompt: boolean): OpenSession | undefined {
-  const makeHarness = HARNESSES[harnessName];
-  if (makeHarness === undefined) {
-    return;
-  }
-  return harnessName === "pi"
-    ? createPiOpenSession({ omitHarnessBasePrompt: omitHarnessPrompt })
-    : makeHarness();
 }
 
 /** Theme precedence: explicit override (flag/env) → terminal OSC query → dark. The
@@ -95,6 +77,16 @@ function formatInputMeta(input: unknown): string {
     return "";
   }
   return typeof input === "string" ? input : JSON.stringify(input);
+}
+
+/** Parse comma-separated TUI flags; undefined means "inherit all". */
+function parseList(raw: string | undefined): readonly string[] | undefined {
+  return raw === undefined
+    ? undefined
+    : raw
+        .split(",")
+        .map((name) => name.trim())
+        .filter((name) => name.length > 0);
 }
 
 /** The per-run defaults from CLI flags, each field added only when supplied. */
@@ -172,28 +164,20 @@ async function main(): Promise<void> {
   // explicit value is parsed as given. Mirrors the node CLI.
   const rawInput = values.input ?? positionals[1];
   const input = rawInput === undefined ? undefined : parseInput(rawInput);
-  const harnessName = values.harness ?? "pi";
   const model = values.model ?? modelFromEnv() ?? "openrouter/deepseek/deepseek-v4-flash";
-  const openSession = openTuiHarness(harnessName, values["omit-harness-prompt"]);
-  if (openSession === undefined) {
-    process.stderr.write(`microfoom tui: unknown harness "${harnessName}"\n`);
+  const harnesses = openHarnessRegistry(values.harness, values["omit-harness-prompt"]);
+  if (harnesses === undefined) {
+    process.stderr.write(`microfoom tui: unknown harness "${values.harness}"\n`);
     process.exit(1);
   }
 
-  const toList = (raw: string | undefined): readonly string[] | undefined =>
-    raw === undefined
-      ? undefined
-      : raw
-          .split(",")
-          .map((name) => name.trim())
-          .filter((name) => name.length > 0);
-  const skills = toList(values.skills);
-  const plugins = toList(values.plugins);
+  const skills = parseList(values.skills);
+  const plugins = parseList(values.plugins);
   const store = createStore();
   store.setMeta({
     file: sourceFile,
     model,
-    harness: harnessName,
+    harness: values.harness ?? "program-config",
     input: formatInputMeta(input),
   });
 
@@ -237,14 +221,15 @@ async function main(): Promise<void> {
     store.done(undefined, `${sourceFile} has no default-exported program`);
     return;
   }
-  const tools = toList(values.tools);
+  const tools = parseList(values.tools);
   const defaults = buildTuiDefaults(values.thinking, tools, skills, plugins);
   const turnStore = resolveTuiStore(values.store);
   await runIntoStore(
     ProgramClass,
     input,
     {
-      harnesses: { [harnessName]: openSession },
+      harnesses,
+      ...(values.harness === undefined ? {} : { defaultHarness: values.harness }),
       model,
       sourceFile,
       signal: controller.signal,

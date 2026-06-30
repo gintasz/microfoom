@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 // `microfoom run <file> [input]` — the default way to run a program file. Added
-// value over `node --import tsx run.ts`: zero per-program boilerplate, model/key
-// resolved from ~/.pi (via the pi harness), and a live run panel (span tree with
-// cost/latency/repairs). Output discipline: the program result goes to STDOUT
-// (clean, pipeable, --json for machines); all observability goes to STDERR.
+// value over `node --import tsx run.ts`: zero per-program boilerplate, model
+// resolved from flags/env, and a live run panel (span tree with cost/latency/
+// repairs). Output discipline: the program result goes to STDOUT (clean,
+// pipeable, --json for machines); all observability goes to STDERR.
 //
 // Modes: interactive TTY → live panel by default; piped/redirected → auto-headless
 // (no ANSI). Force with --panel / --headless. `--harness fake` runs offline (no model).
@@ -16,21 +16,12 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { createFileTurnStore, type OpenSession, runProgram, type TurnStore } from "@microfoom/core";
 import { type AgentEvent, buildRunTree } from "@microfoom/core/trace";
-import { createPiOpenSession } from "@microfoom/pi-adapter";
 import { modelFromEnv } from "./env.js";
-import { fakeOpenSession } from "./fake.js";
 import { fmtSummary } from "./format.js";
+import { knownHarnessNames, openHarnessRegistry } from "./harnesses.js";
 import { loadProgram } from "./loader.js";
 import { attachPanel } from "./panel.js";
 import { RERUN_EXIT_CODE } from "./tui/rerun.js";
-
-// Selectable harnesses (composition root — the one place names map to adapters).
-// Add new harness support here; the program then runs on `--harness <name>`.
-const HARNESSES: Record<string, () => OpenSession> = {
-  pi: createPiOpenSession,
-  fake: fakeOpenSession,
-};
-const DEFAULT_HARNESS = "pi";
 
 const HELP = `microfoom — run a microfoom program file
 
@@ -39,7 +30,7 @@ Usage:
   microfoom <file> [input]            'run' is optional
 
 Options:
-  --harness <name>    harness to run on: pi (default) | fake (offline stub, no model)
+  --harness <name>    harness to run on: claudecli | pi | fake (offline stub, no model)
   --omit-harness-prompt   send the model ONLY microfoom's prompt (drop the harness
                       base prompt — pi's coding-agent persona + project context)
   --model <id>        model id (default: $MICROFOOM_MODEL or a deepseek default)
@@ -122,11 +113,10 @@ function cliDefaults(
   };
 }
 
-/** Assemble the run options, adding the optional `defaults`/`store` only when set
- *  (keeps the spread-conditionals out of `run()` itself). */
+/** Assemble the run options, adding optional fields only when set. */
 function buildRunOptions(args: {
-  harnessName: string;
-  openSession: OpenSession;
+  harnesses: Record<string, OpenSession>;
+  defaultHarness: string | undefined;
   model: string;
   sourceFile: string;
   onEvent: (event: AgentEvent) => void;
@@ -134,7 +124,8 @@ function buildRunOptions(args: {
   store: TurnStore | undefined;
 }): Parameters<typeof runProgram>[2] {
   return {
-    harnesses: { [args.harnessName]: args.openSession },
+    harnesses: args.harnesses,
+    ...(args.defaultHarness === undefined ? {} : { defaultHarness: args.defaultHarness }),
     model: args.model,
     sourceFile: args.sourceFile,
     onEvent: args.onEvent,
@@ -266,21 +257,6 @@ async function runTui(args: TuiArgs): Promise<number> {
   }
 }
 
-/** Open a session on the named harness (pi gets the omit-base-prompt option), or
- *  undefined when the name isn't a known harness. */
-function openHarnessSession(
-  harnessName: string,
-  omitHarnessPrompt: boolean,
-): OpenSession | undefined {
-  const makeHarness = HARNESSES[harnessName];
-  if (makeHarness === undefined) {
-    return;
-  }
-  return harnessName === "pi"
-    ? createPiOpenSession({ omitHarnessBasePrompt: omitHarnessPrompt })
-    : makeHarness();
-}
-
 /** Run the program and render its result + run summary; map a thrown failure to a
  *  non-zero exit. Returns the process exit code. */
 async function executeProgram(
@@ -382,11 +358,10 @@ async function run(): Promise<number> {
   const usePanel = values.panel || (!values.headless && interactive);
 
   const ProgramClass = await loadProgram(sourceFile);
-  const harnessName = values.harness ?? DEFAULT_HARNESS;
-  const openSession = openHarnessSession(harnessName, values["omit-harness-prompt"]);
-  if (openSession === undefined) {
+  const harnesses = openHarnessRegistry(values.harness, values["omit-harness-prompt"]);
+  if (harnesses === undefined) {
     process.stderr.write(
-      `microfoom: unknown harness "${harnessName}" (known: ${Object.keys(HARNESSES).join(", ")})\n`,
+      `microfoom: unknown harness "${values.harness}" (known: ${knownHarnessNames().join(", ")})\n`,
     );
     return 1;
   }
@@ -405,16 +380,22 @@ async function run(): Promise<number> {
     parseList(values.plugins),
   );
   const store = resolveStore(values.store);
-  const runOptions = buildRunOptions({
-    harnessName,
-    openSession,
-    model,
-    sourceFile,
-    onEvent,
-    defaults,
-    store,
-  });
-  return executeProgram(ProgramClass, input, runOptions, values, events, panel);
+  return executeProgram(
+    ProgramClass,
+    input,
+    buildRunOptions({
+      harnesses,
+      defaultHarness: values.harness,
+      model,
+      sourceFile,
+      onEvent,
+      defaults,
+      store,
+    }),
+    values,
+    events,
+    panel,
+  );
 }
 
 run().then(
