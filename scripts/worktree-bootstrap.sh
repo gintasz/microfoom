@@ -1,32 +1,47 @@
 #!/usr/bin/env bash
-# SessionStart hook — install deps the first time a session opens in a checkout
-# that has none. A fresh git worktree shares no node_modules with the main
-# checkout, so the first session there installs them; every later session no-ops.
+# Bootstrap dependencies in a freshly created worktree / environment.
 #
-# Idempotent (guards on node_modules), so it is safe to run on EVERY session start
-# — that is why SessionStart works even though it is not worktree-specific. Used by
-# both Claude Code (.claude/settings.json) and Codex (.codex/config.toml); each
-# passes the event payload as JSON on stdin with a `cwd` field.
+# A new worktree shares no node_modules with the main checkout, so the first time
+# work starts there the deps must be installed. Idempotent (guards on node_modules)
+# and reused by two callers, so it accepts the target directory two ways:
 #
-# Nothing is written to stdout (SessionStart stdout is injected into the agent's
-# context); all diagnostics go to stderr, and the hook always exits 0.
+#   • Claude Code SessionStart hook → NO argument. The event payload arrives as
+#     JSON on stdin and we read `cwd` from it. SessionStart fires on EVERY session,
+#     so this path also gates on `-f .git` (a linked worktree's .git is a file, the
+#     main checkout's is a directory) to act only inside a worktree.
+#
+#   • Codex environment [setup] script → pass the path as $1 (e.g.
+#     "$CODEX_WORKTREE_PATH"). Setup runs ONCE at environment creation, so it skips
+#     the .git gate and NEVER reads stdin — reading stdin there would block (no
+#     payload is piped) and hang setup.
+#
+# Writes nothing to stdout (SessionStart stdout is injected into the agent context);
+# diagnostics go to stderr; always exits 0.
 set -uo pipefail
 
-payload="$(cat)"
-
-# The session's working directory — the worktree for a worktree session. Parsed
-# with node (always present in this repo); falls back to $PWD if absent.
-dir="$(
-  printf '%s' "$payload" | node -e 'let s="";process.stdin.on("data",d=>{s+=d}).on("end",()=>{let o={};try{o=JSON.parse(s)}catch{}process.stdout.write(String(o.cwd||""))})'
-)"
+dir="${1:-}"
+from_arg=1
+if [[ -z "$dir" ]]; then
+  from_arg=0
+  # Hook path: read the JSON payload from stdin — but only when stdin is actually
+  # piped, never from a terminal, so we can't block.
+  payload=""
+  [[ -t 0 ]] || payload="$(cat)"
+  dir="$(
+    printf '%s' "$payload" | node -e 'let s="";process.stdin.on("data",d=>{s+=d}).on("end",()=>{let o={};try{o=JSON.parse(s)}catch{}process.stdout.write(String(o.cwd||""))})'
+  )"
+fi
 [[ -n "$dir" && -d "$dir" ]] || dir="$PWD"
 
 cd "$dir" || exit 0
-# Fire only in a fresh LINKED WORKTREE: git makes a linked worktree's `.git` a
-# file (a `gitdir:` pointer), while the main checkout's `.git` is a directory — so
-# `-f .git` means "this is a worktree". Combined with the node_modules guard, a
-# normal new session in the main checkout (or a reopened worktree) is a no-op.
-[[ -f .git && -f pnpm-lock.yaml && ! -d node_modules ]] || exit 0
+
+# The hook path (no explicit arg) fires on every session — restrict it to a linked
+# worktree. An explicit-arg caller (Codex setup) already runs only at creation.
+if [[ "$from_arg" -eq 0 && ! -f .git ]]; then
+  exit 0
+fi
+
+[[ -f pnpm-lock.yaml && ! -d node_modules ]] || exit 0   # already installed / not a pnpm root
 
 echo "[worktree bootstrap] installing deps in $dir" >&2
 corepack pnpm install --frozen-lockfile 1>&2 ||
