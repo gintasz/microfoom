@@ -24,3 +24,6 @@ worktrees/
 .claude/
 .opencode/
 .cursor/
+
+# Turborepo
+.turbo

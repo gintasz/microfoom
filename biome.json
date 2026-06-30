@@ -29,6 +29,7 @@
       "preset": "recommended",
       "complexity": {
         "noExcessiveCognitiveComplexity": "error",
+        "useLiteralKeys": "off",
         "noUselessUndefined": "error",
         "noVoid": "error",
         "useMaxParams": {
