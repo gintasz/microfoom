@@ -63,7 +63,7 @@ export default class Hello extends Program(name) {
 ```
 
 ```bash
-microfoom run examples/hello.ts "Chuck Norris" --tui
+microfoom run examples/hello.ts "Chuck Norris"
 ```
 
 2) Exercises the whole microfoom surface in one coherent task: turn a one-line product idea into a polished elevator pitch [`pitch.ts`](examples/pitch.ts).
@@ -233,7 +233,7 @@ import "@microfoom/core/trace";
 The CLI's run panel and `--tui` inspector render exactly this tree.
 
 
-## Resuming work
+## Resumable work
 
 A long run can be **killed and restarted without losing finished work**. Pass a store (`--store` on the CLI, or the `store` run option) and every completed turn is recorded by a content hash of its inputs; on a re-run, an unchanged turn is recalled from the store instead of re-invoking the model — you pay only for turns that haven't run yet.
 
