@@ -63,7 +63,7 @@ export default class Hello extends Program(name) {
 ```
 
 ```bash
-microfoom run examples/hello.ts "Chuck Norris"
+microfoom run examples/hello.ts "Chuck Norris" --tui
 ```
 
 2) Exercises the whole microfoom surface in one coherent task: turn a one-line product idea into a polished elevator pitch [`pitch.ts`](examples/pitch.ts).
@@ -205,19 +205,19 @@ export default class Pitchwright extends Program(Idea) {
 ```
 
 ```bash
-microfoom run examples/pitch.ts "a budgeting app for freelancers"
+microfoom run examples/pitch.ts "a budgeting app for freelancers" --tui
 ```
 
 ## Turn modes
 
-Inside `main()`, `this.agent` is your handle to the runtime — how your program drives the runtime that runs agents. Every call on it is one **turn**: you hand off an instruction and a new harness agent works on it — reasoning and calling tools as it goes — until it hands a result back to your code. Each turn resolves as a normal `await`, so a coordination script reads as ordinary TypeScript, not callbacks. You choose a *mode* by what you want back:
+Inside `main()`, `this.agent` is how your program commands agents.  Every call on it is one **turn**: you hand off an instruction and a new harness agent works on it — reasoning and calling tools as it goes — until it hands a result back to your code. Each turn resolves as a normal `await`, so a coordination script reads as ordinary TypeScript. You choose a *mode* by what you want back:
 
-- **`value(schema)`** — a structured turn. The agent ends its work by calling the `foom_return` tool with a value, which is validated against the schema you passed; the awaited result is typed. If it doesn't, a repair prompt nudges it to make that call — or to use `foom_throw` as a last resort when the instructions can't be satisfied (impossible, self-contradictory, etc.).
-- **`prose`** — a freeform natural-language turn: the ordinary case of the agent answering your prompt. Its reply *is* the return value — `await` for the full text.
-- **`do`** — an act turn: run instructions for their side effects and resolve to `void`. The cheapest mode — no schema, no final message. The agent is told to finish with a no-argument `foom_return`, which cuts the unnecessary yapping you'd otherwise pay for (the "I've successfully completed your request… let me know if you need anything else!" tail).
+- **`value(schema)`** — a structured turn. The agent ends its work by calling the `foom_return` tool with a value, which is validated against the schema you passed. If it doesn't, a repair prompt nudges it to make that call — or to use `foom_throw` as a last resort when the instructions can't be satisfied (impossible, self-contradictory, etc.).
+- **`prose`** — a freeform natural-language turn: the ordinary case of the agent answering your prompt. Its reply *is* the return value.
+- **`do`** — an act turn: run instructions for their side effects and resolve to `void`. The cheapest mode — no schema, no final message. The agent is told to finish with a no-argument `foom_return` tool, which cuts the unnecessary yapping you'd otherwise pay for (the "I've successfully completed your request… let me know if you need anything else!" tail).
 
 
-## Tracing
+## Observability
 
 A **run** is one execution of your program — a single `runProgram(...)` (or `microfoom run …`), from `main()` to the value it returns. Microfoom records each run as a tree of **spans**, where a span is one named, timed unit of work: the run at the root, the turns it runs beneath it, and any exposed method the agent calls mid-turn nested inside that turn. Each span carries its duration and its token/cost usage, and that usage rolls up into its parent — so any span totals everything beneath it. Importing the trace entry lets you name your own spans and read the tree out:
 
