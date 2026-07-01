@@ -311,7 +311,6 @@ import Pitchwright from "./examples/pitch.ts";
 const pitch = await runProgram(Pitchwright, "a budgeting app for freelancers", {
   harnesses: {
     pi: createPiOpenSession(),
-    // Registering claudecli lets the example's step 4 route cross-harness.
     claudecli: createClaudeCliOpenSession(),
   },
   defaultHarness: "pi",
