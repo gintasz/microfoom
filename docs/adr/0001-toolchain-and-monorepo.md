@@ -57,7 +57,8 @@ not an edit to the governing principles.
   (`unplugin-swc`) because the default Vite transform (oxc) does not lower the
   TC39 decorators that `@foom.config`/`@foom.expose` use.
 - **Hygiene:** syncpack (one version per dep, exact), knip (dead code), jscpd
-  (duplication), cspell, lefthook (DoD gate, git hooks).
+  (duplication), typos (spell — CI-pinned `crate-ci/typos` action; local dev-provided),
+  lefthook (DoD gate, git hooks).
 - Package **directory** names are kebab-case (ecosystem norm); **source files**
   are snake_case (N1), enforced by biome's filename rule scoped to `packages/*/src`.
 
@@ -78,15 +79,17 @@ not an edit to the governing principles.
 | dead-code checker | knip | B2 |
 | duplication detector | jscpd | B9 |
 | version-policy checker | syncpack | DEP3 |
-| spell checker | cspell (`project-words.txt`) | N5 |
+| spell checker | typos — `crate-ci/typos@v1.48.0` in CI (pinned); local install developer-provided, not lockfile-pinned (L1 pinning exception: no npm distribution) | N5 |
 | git-hook runner | lefthook | V1, DOD |
 | usage-accounting monoid | hand-written `combineUsage`/`emptyUsage` (core) | OB3 |
 | event renderer | core `formatEvent`/`consoleExporter` (`@microfoom/core/trace`) | OB1 |
 
 ## Consequences
 
-Every gate runs locally (lefthook) and in CI before merge. Changing any toolchain
-member is a P6 amendment recorded as a new ADR. Deliberate choice: SWC over the
+Every gate runs locally (lefthook) and in CI before merge. Swapping a toolchain
+member for another in the same role is a catalogue edit in the table above (C3),
+not a new ADR; changing a member's role/policy or adding/removing a gate is a P6
+amendment recorded as a new ADR. Deliberate choice: SWC over the
 default Vite/oxc test transform (decorator lowering). The Effect ecosystem was
 removed entirely once the harness took the loop (ADR-0002) — domain logic is plain
 TypeScript, biome is the primary linter (with a thin type-aware typescript-eslint

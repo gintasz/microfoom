@@ -23,7 +23,7 @@ jobs:
       - run: pnpm run build
       - run: pnpm run arch
       - run: pnpm run ast
-      - run: pnpm run spell
+      - uses: crate-ci/typos@v1.48.0 # spell gate — pinned; reads _typos.toml
       - run: pnpm run deps:check
       - run: pnpm run dead
       - run: pnpm run dup
