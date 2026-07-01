@@ -44,7 +44,7 @@ npm install -g @microfoom/cli
 
 ## Example
 
-1) Hello world [[`hello.ts`](examples/hello.ts)]:
+1) Hello world [`hello.ts`](examples/hello.ts):
 ```ts
 import { foom, Program } from "@microfoom/core";
 import { z } from "zod";
@@ -66,7 +66,7 @@ export default class Hello extends Program(name) {
 microfoom run examples/hello.ts "Chuck Norris"
 ```
 
-2) Exercises the whole microfoom surface in one coherent task: turn a one-line product idea into a polished elevator pitch ([`pitch.ts`](examples/pitch.ts)).
+2) Exercises the whole microfoom surface in one coherent task: turn a one-line product idea into a polished elevator pitch [`pitch.ts`](examples/pitch.ts).
 ```ts
 import { writeFile } from "node:fs/promises";
 import { FoomThrowError, foom, Program } from "@microfoom/core";
