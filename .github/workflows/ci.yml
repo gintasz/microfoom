@@ -2,6 +2,10 @@ name: CI
 
 on:
   pull_request:
+  # Direct pushes to main (e.g. hotfixes that bypass a PR) are gated too, so main
+  # is never left untested. PRs still run the identical gate before merge.
+  push:
+    branches: [main]
 
 jobs:
   check:
