@@ -1,0 +1,16 @@
+# typos config — the `spell` gate (N5). typos is correction-based: it flags known
+# misspellings, not unknown words, so there is NO domain-word allowlist to maintain
+# (that was cspell's project-words.txt, now retired). Only genuine false
+# positives — short identifier/prefix tokens typos mistakes for typos — are pinned
+# below. Keep this list tiny; a growing list is a smell, not a workflow.
+
+[files]
+# Generated / vendored artifacts that are not authored prose.
+extend-exclude = ["pnpm-lock.yaml", "**/*.api.md", "etc/**"]
+
+[default.extend-words]
+mis = "mis" # "mis-route" / "mis-thread" — English prefix, hyphen-split into a token
+als = "als" # spanALS — AsyncLocalStorage abbreviation
+ser = "ser" # local serialize helper name
+thr = "thr" # codex "thr_…" thread-id prefix (external protocol)
+hel = "hel" # transcript-test fixture literal
