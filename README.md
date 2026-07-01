@@ -44,23 +44,37 @@ npm install -g @microfoom/cli
 
 ## Example
 
-One coordination script, the whole surface — turn a one-line product idea into a
-polished elevator pitch. It runs offline on a real model with nothing to mock:
-every exposed method is pure local TypeScript, no network and no hypothetical APIs.
-This is [`examples/pitch.ts`](examples/pitch.ts) verbatim — run it with
-`microfoom run examples/pitch.ts "a budgeting app for freelancers"`.
+1) Hello world [[`hello.ts`](examples/hello.ts)]:
+```ts
+import { foom, Program } from "@microfoom/core";
+import { z } from "zod";
 
+const name = z.string();
+
+@foom.config({
+  model: "openrouter/deepseek/deepseek-v4-flash",
+})
+export default class Hello extends Program(name) {
+  async main(who: string): Promise<string> {
+    return await this.agent
+      .prose`Write a warm, one-sentence greeting for ${who} embarking on a new journey.`;
+  }
+}
+```
+
+```bash
+microfoom run examples/hello.ts "Chuck Norris"
+```
+
+2) Exercises the whole microfoom surface in one coherent task: turn a one-line product idea into a polished elevator pitch ([`pitch.ts`](examples/pitch.ts)).
 ```ts
 import { writeFile } from "node:fs/promises";
 import { FoomThrowError, foom, Program } from "@microfoom/core";
-// The trace entry types `scope` / `annotate` / `log` / `usage` onto this.agent.
 import "@microfoom/core/trace";
 import { z } from "zod"; // any Standard Schema validator works
 
 const WHITESPACE = /\s+/u;
 
-// A bare Standard Schema is a valid program input — so the CLI's positional arg
-// (`microfoom run pitch.ts "an app idea"`) lands straight in `main(idea)`.
 const Idea = z.string().min(1);
 
 const Pitch = z.object({
@@ -70,21 +84,20 @@ const Pitch = z.object({
 });
 type Pitch = z.infer<typeof Pitch>;
 
-// Class scope of the config cascade (run-defaults → class → method → .with): a cheap
-// model on the pi harness, FOOM-only (no harness tools — the program drives every
-// side effect through @foom.expose), plus run-wide caps and a system-prompt append.
+// ── Class scope of the config cascade (run-defaults → class → method → .with) ──
 @foom.config({
   model: "openrouter/deepseek/deepseek-v4-flash",
   harness: "pi",
   thinking: "low",
-  tools: [], // tri-state: [] = no harness tools; FOOM tools are always available
+  tools: [], // disable harness tools, except FOOM tools
   retries: 1, // re-run a turn once on a transient harness/network failure
-  maxConcurrentRootTurns: 4, // cap concurrent top-level turns; nested foom_calls exempt (tighten-only)
+  maxConcurrentRootTurns: 5, // cap concurrent top-level turns (nested foom_calls exempt)
   maxBudgetUsd: 0.5, // whole-run cost ceiling; exceeding aborts
   systemPrompt: { append: "Be terse. Marketing copy, never code." },
 })
 export default class Pitchwright extends Program(Idea) {
-  static maxProgramDuration = "3m"; // whole-program wall-clock ceiling
+  // Whole-program wall-clock ceiling.
+  static maxProgramDuration = "3m";
 
   async main(idea: string): Promise<Pitch> {
     // 1) Structured turn → schema-validated, typed value. The agent ends with
@@ -94,7 +107,7 @@ export default class Pitchwright extends Program(Idea) {
     try {
       angles = await this.agent.value(z.array(z.string()).max(4))`
         List up to 4 distinct angles to pitch a solution for this idea: ${idea}.
-        If the idea is empty or incoherent, call foom_throw instead. foom_return the list.`;
+        If the idea is empty or incoherent, call foom_throw instead. Call foom_return tool with the list.`;
     } catch (error) {
       if (error instanceof FoomThrowError) {
         throw new Error(`unworkable idea: ${error.message}`, { cause: error });
@@ -114,8 +127,8 @@ export default class Pitchwright extends Program(Idea) {
           ranking
             .with({ label: `angle-${i}` })
             .value(z.object({ angle: z.string(), score: z.number() }))`
-            Call rate on this angle to get a 0–100 punchiness score: ${angle}.
-            foom_return { angle, score } using that score.`,
+            Use foom_call tool with method 'rate' on this angle to get a 0-100 punchiness score: ${angle}.
+            Then call foom_return tool with the angle and score.`,
       ),
     );
     const best = scored.reduce((a, b) => (b.score > a.score ? b : a));
@@ -128,11 +141,15 @@ export default class Pitchwright extends Program(Idea) {
     await draft.prose`We are drafting an elevator pitch for this angle: ${best.angle}. Reply "ready".`;
     const [punchy, formal] = await Promise.all([
       draft.fork().value(Pitch)`
-        Write a PUNCHY two-line pitch (headline + body, each under 12 words — you may
-        call wordCount to check). Call rate on the body and put that in "score". foom_return the Pitch.`,
+        Write a PUNCHY two-line pitch (headline + body, each under 12 words — you may use
+        foom_call tool with method 'wordCount' to check). Use foom_call method 'rate' to get a score.
+        Don't do more than 5 rate calls.
+        Then call foom_return tool with the Pitch.`,
       draft.fork().value(Pitch)`
-        Write a FORMAL, credible two-line pitch. Call rate on the body and put that in
-        "score". foom_return the Pitch.`,
+        Write a FORMAL two-line pitch (headline + body, each under 12 words — you may use
+        foom_call tool with method 'wordCount' to check). Use foom_call method 'rate' to get a score.
+        Don't do more than 5 rate calls.
+        Then call foom_return tool with the Pitch.`,
     ]);
     const draftWinner = punchy.score >= formal.score ? punchy : formal;
 
@@ -140,22 +157,22 @@ export default class Pitchwright extends Program(Idea) {
     //    prompt: distinct `storeKey`s keep them as separate store records under
     //    --store (otherwise identical turns collapse to one). Keep the better.
     //    Swap `model` for `harness: "claudecli"` here to route it CROSS-HARNESS
-    //    (register that adapter — see "Run it" below).
     const polish = (key: string) =>
       this.agent
         .with({ model: "openrouter/deepseek/deepseek-v4-pro", thinking: "high", storeKey: key })
         .value(Pitch)`
-          Tighten this pitch to its sharpest, most truthful form. Call rate on the new
-          body and put that number in "score". foom_return the Pitch: ${JSON.stringify(draftWinner)}`;
+          Tighten this pitch to its sharpest, most truthful form. Use foom_call tool with method 'rate' on the new
+          body to get a new score. Don't do more than 5 rate calls. Then call foom_return tool with the Pitch: ${JSON.stringify(draftWinner)}`;
     const samples = await Promise.all([polish("polish-a"), polish("polish-b")]);
     const winner = samples.reduce((a, b) => (b.score > a.score ? b : a));
 
-    // 5) Act turn (`do`): side effects only, no response tokens billed. The agent
-    //    persists the result through the `save` tool, then ends with a no-arg foom_return.
+    // 5) Act turn (`do`): side effects only, no final response tokens billed. The agent
+    //    persists the result through the `save` tool, then ends with a no-arg foom_return call.
     await this.agent.do`Save the final pitch via the save tool: ${JSON.stringify(winner)}`;
 
     // 6) Read run usage and record it as a trace log — it shows in the --tui span
-    //    tree / run panel (no stdout; `this.agent.usage` is a live snapshot).
+    //    tree / run panel. (A program shouldn't write to stdout under --tui: that
+    //    bypasses the inspector's renderer and corrupts the screen.)
     const { totalTokens, costUsd } = this.agent.usage;
     this.agent.scope("usage").log(`${totalTokens} tokens · $${(costUsd ?? 0).toFixed(4)}`);
 
@@ -187,11 +204,9 @@ export default class Pitchwright extends Program(Idea) {
 }
 ```
 
-One script: structured `value` / freeform `prose` / side-effecting `do`; parallel
-fan-out under a traced `scope` (with `annotate`/`log`); a stateful `session()` you
-`fork()`; per-call cross-model routing; best-of-N with `storeKey`; all three
-`@foom.expose` tiers; a `foom_throw` guard; and the config cascade with run-wide caps.
-The pieces are unpacked in the sections below.
+```bash
+microfoom run examples/pitch.ts "a budgeting app for freelancers"
+```
 
 ## Turn modes
 
