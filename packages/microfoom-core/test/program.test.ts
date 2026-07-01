@@ -5,6 +5,7 @@ import { z } from "zod";
 import {
   CONTROL_TOOLS,
   FoomCancelledError,
+  FoomInputError,
   foom,
   type OpenSession,
   Program,
@@ -50,6 +51,59 @@ describe("program facade (end to end, fake session)", () => {
       model: "fake",
     });
     expect(out).toBe(9);
+  });
+
+  it("rejects bad input with FoomInputError whose message names the failing field", async () => {
+    const Shape = z.object({ topic: z.string(), count: z.number() });
+    class Needs extends Program<typeof Shape, string>(Shape) {
+      async main(): Promise<string> {
+        return await this.agent.prose`unreachable`;
+      }
+    }
+    const error = await runProgram(
+      Needs,
+      { topic: 123, count: "x" },
+      {
+        harnesses: fakeHarness([{ text: "unreachable" }]),
+        model: "fake",
+      },
+    ).then<never, FoomInputError>(
+      () => {
+        throw new Error("expected FoomInputError");
+      },
+      (caught: unknown) => caught as FoomInputError,
+    );
+    expect(error).toBeInstanceOf(FoomInputError);
+    // Message leads with what broke — the field path and its reason — not a generic string.
+    expect(error.message).toContain("program input failed its schema");
+    expect(error.message).toContain("topic:");
+    expect(error.message).toContain("count:");
+    // Full structured issues remain on `.data` for programmatic handling.
+    expect(Array.isArray(error.data)).toBe(true);
+    expect((error.data as unknown[]).length).toBe(2);
+  });
+
+  it("caps the message at three issues with a (+N more) tail", async () => {
+    const Wide = z.object({ a: z.string(), b: z.string(), c: z.string(), d: z.string() });
+    class Needs extends Program<typeof Wide, string>(Wide) {
+      async main(): Promise<string> {
+        return await this.agent.prose`unreachable`;
+      }
+    }
+    const error = await runProgram(
+      Needs,
+      {},
+      {
+        harnesses: fakeHarness([{ text: "unreachable" }]),
+        model: "fake",
+      },
+    ).then<never, FoomInputError>(
+      () => {
+        throw new Error("expected FoomInputError");
+      },
+      (caught: unknown) => caught as FoomInputError,
+    );
+    expect(error.message).toContain("(+1 more)");
   });
 
   it("threads RunProgramOptions.signal: an aborted signal cancels the run with FoomCancelledError", async () => {

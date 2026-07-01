@@ -1268,6 +1268,22 @@ function makeContext<P extends object>(
  * });
  * ```
  */
+/** Summarize Standard Schema issues into a one-line, human-readable reason:
+ *  `field.path: message` per issue, capped at three (with a `(+N more)` tail) so a
+ *  wide object can't flood the message. The full issue list stays on `error.data`. */
+const MAX_SHOWN_INPUT_ISSUES = 3;
+
+function formatInputIssues(issues: readonly StandardSchemaV1.Issue[]): string {
+  const shown = issues.slice(0, MAX_SHOWN_INPUT_ISSUES).map((issue) => {
+    const path = (issue.path ?? [])
+      .map((segment) => (typeof segment === "object" ? segment.key : segment))
+      .join(".");
+    return path === "" ? issue.message : `${path}: ${issue.message}`;
+  });
+  const more = issues.length > shown.length ? ` (+${issues.length - shown.length} more)` : "";
+  return shown.join("; ") + more;
+}
+
 /** Validate raw program input against the program's optional input schema (the
  *  static `input` on the class), returning the parsed value (or the raw input when
  *  no schema is declared). */
@@ -1281,9 +1297,12 @@ async function validateProgramInput(
   }
   const validated = await Promise.resolve(inputSchema["~standard"].validate(rawInput));
   if (validated.issues !== undefined) {
-    throw new FoomInputError("program input validation failed against its input schema", {
-      data: validated.issues,
-    });
+    throw new FoomInputError(
+      `program input failed its schema — ${formatInputIssues(validated.issues)}`,
+      {
+        data: validated.issues,
+      },
+    );
   }
   return validated.value;
 }

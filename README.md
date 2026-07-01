@@ -207,6 +207,12 @@ export default class Pitchwright extends Program(Idea) {
 microfoom run examples/pitch.ts "a budgeting app for freelancers" --tui
 ```
 
+<div align="center">
+
+<img src="https://github.com/gintasz/microfoom/raw/main/assets/tui.png" alt="microfoom terminal UI" width="820" />
+
+</div>
+
 ## How the agent talks to your program
 
 An agent running inside a microfoom runtime interacts with it through 4 native tools — surfaced as structured function calls.
@@ -252,6 +258,10 @@ A long run can be **killed and restarted without losing finished work**. Pass a 
 
 Turns inside a stateful `session()` are not memoized — their shared transcript can't be reconstructed on recall.
 
+```sh
+microfoom run examples/pitch.ts "a budgeting app" --store /tmp/pitch_store.jsonl
+```
+
 ## Configuration
 
 Set config with `@foom.config({ ... })` on a class or method, with `.with({ ... })` per call, or as run-level defaults. Scopes cascade widest → narrowest (**run defaults → class → method → per-call**), merging by a rule fixed per option kind: **caps tighten only**, **`systemPrompt` composes**, **everything else is nearest-scope-wins**.
@@ -282,38 +292,15 @@ A harness is the model-loop adapter a turn runs on.
 
 | Harness | Status | Notes |
 | --- | --- | --- |
-| **pi** ([`@microfoom/pi-adapter`](packages/pi-adapter)) | recommended | Runs on the [Pi](https://www.npmjs.com/package/@earendil-works/pi-agent-core) agent SDK; resolves model/auth from `~/.pi`. Full feature support. |
-| **claudecli** ([`@microfoom/claudecli-adapter`](packages/claudecli-adapter)) | experimental | Drives the headless `claude` CLI (`claude -p`) via an in-process MCP server. |
-| **codexcli** ([`@microfoom/codexcli-adapter`](packages/codexcli-adapter)) | experimental | Drives the headless `codex` CLI via an in-process MCP server. Ignores `maxBudgetUsd`, `omitBasePrompt`, `maxOutputTokens`, `plugins`, `allowedTools`; no token-level streaming. |
-| **opencode** ([`@microfoom/opencode-adapter`](packages/opencode-adapter)) | experimental, not recommended | Runs on [opencode](https://github.com/anomalyco/opencode). Ignores `maxOutputTokens`; `plugins` needs more testing; no token-level streaming; barely tested — prefer pi. |
+| **pi** ([`@microfoom/pi-adapter`](packages/pi-adapter)) | 👍 recommended | Runs on the [Pi](https://www.npmjs.com/package/@earendil-works/pi-agent-core) agent SDK; resolves model/auth from `~/.pi`. Full feature support. |
+| **claudecli** ([`@microfoom/claudecli-adapter`](packages/claudecli-adapter)) | ⚠️ experimental | Drives the headless `claude` CLI (`claude -p`) via an in-process MCP server. |
+| **codexcli** ([`@microfoom/codexcli-adapter`](packages/codexcli-adapter)) | ⚠️ experimental | Drives the headless `codex` CLI via an in-process MCP server. Ignores `maxBudgetUsd`, `omitBasePrompt`, `maxOutputTokens`, `plugins`, `allowedTools`; no token-level streaming. |
+| **opencode** ([`@microfoom/opencode-adapter`](packages/opencode-adapter)) | ⚠️ experimental, not recommended | Runs on [opencode](https://github.com/anomalyco/opencode). Ignores `maxOutputTokens`; `plugins` needs more testing; no token-level streaming; barely tested — prefer pi. |
 
 Register the harnesses you want under names, then select per scope via `@foom.config({ harness })` / `.with({ harness })`.
 
 
-## Run it
-
-The CLI runs a program file with zero boilerplate — model/auth resolved from the pi harness, the program result on stdout, observability on stderr.
-
-```sh
-microfoom run examples/pitch.ts "a budgeting app for freelancers"
-microfoom run examples/pitch.ts "a budgeting app" --json        # result as JSON
-microfoom run examples/pitch.ts "a budgeting app" --store ./.microfoom/pitch.jsonl  # store turn outcomes; re-run to resume
-```
-
-Add `--tui` to open a two-pane inspector: the live span tree on the left, the agent's transcript for the selected span on the right.
-
-```sh
-microfoom run examples/pitch.ts "a budgeting app" --tui --store /tmp/pitch_store.jsonl
-```
-
-<div align="center">
-
-<!-- Replace with a screenshot of `microfoom run … --tui`. -->
-<img src="https://github.com/gintasz/microfoom/raw/main/assets/tui.png" alt="microfoom terminal UI" width="820" />
-
-</div>
-
-You can also run it programmatically.
+## Run programmatically without CLI
 
 ```ts
 import { createFileTurnStore, runProgram } from "@microfoom/core";
