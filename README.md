@@ -114,11 +114,11 @@ export default class Pitchwright extends Program(Idea) {
       }
       throw error;
     }
+    // P.S. Agents in all turns self-decide if and when to throw FoomThrowError.
+    //      Skipping try/catch below for brevity.
 
-    // 2) A named trace scope: annotate it, fan child turns out in PARALLEL (plain
-    //    TypeScript owns the control flow), each one foom_calling the exposed `rate`
-    //    method (its own span nests under the scope), then log a line. The whole
-    //    subtree shows up in the --tui inspector.
+    // 2) A named trace scope: annotate it, fan child turns out in PARAxLLEL, each one foom_call'ing
+    //    the exposed `rate` method (its own span nests under the scope).
     const ranking = this.agent.scope("rank");
     ranking.annotate({ angleCount: angles.length });
     const scored = await Promise.all(
@@ -136,7 +136,7 @@ export default class Pitchwright extends Program(Idea) {
 
     // 3) Cross-session: open a STATEFUL session (shared transcript), seed it once,
     //    then fork() into two independent tonal branches that each continue from
-    //    that shared context. Pick the better-scoring draft.
+    //    that shared context.
     const draft = this.agent.session({ thinking: "medium" });
     await draft.prose`We are drafting an elevator pitch for this angle: ${best.angle}. Reply "ready".`;
     const [punchy, formal] = await Promise.all([
@@ -156,7 +156,7 @@ export default class Pitchwright extends Program(Idea) {
     // 4) Best-of-N on a STRONGER model (cross-model). Two stateless samples of one
     //    prompt: distinct `storeKey`s keep them as separate store records under
     //    --store (otherwise identical turns collapse to one). Keep the better.
-    //    Swap `model` for `harness: "claudecli"` here to route it CROSS-HARNESS
+    //    Swap `model` for `harness: "claudecli"` here to route it CROSS-HARNESS.
     const polish = (key: string) =>
       this.agent
         .with({ model: "openrouter/deepseek/deepseek-v4-pro", thinking: "high", storeKey: key })
@@ -167,12 +167,11 @@ export default class Pitchwright extends Program(Idea) {
     const winner = samples.reduce((a, b) => (b.score > a.score ? b : a));
 
     // 5) Act turn (`do`): side effects only, no final response tokens billed. The agent
-    //    persists the result through the `save` tool, then ends with a no-arg foom_return call.
+    //    persists the result through the `save` tool, then ends with a no-arg foom_return tool call.
     await this.agent.do`Save the final pitch via the save tool: ${JSON.stringify(winner)}`;
 
     // 6) Read run usage and record it as a trace log — it shows in the --tui span
-    //    tree / run panel. (A program shouldn't write to stdout under --tui: that
-    //    bypasses the inspector's renderer and corrupts the screen.)
+    //    tree / run panel.
     const { totalTokens, costUsd } = this.agent.usage;
     this.agent.scope("usage").log(`${totalTokens} tokens · $${(costUsd ?? 0).toFixed(4)}`);
 
@@ -181,14 +180,14 @@ export default class Pitchwright extends Program(Idea) {
 
   // Silent expose: agent-callable via foom_call, but NOT advertised — the agent
   // only learns it exists when you name it in a prompt, then foom_inspects its
-  // signature before calling. Pure, offline.
+  // signature before calling.
   @foom.expose
   async wordCount(text: string): Promise<number> {
     return text.trim().split(WHITESPACE).filter(Boolean).length;
   }
 
   // Announced expose: named in the system prompt so the agent knows it's there
-  // (it still foom_inspects for the signature). A deterministic punchiness score.
+  // (it still foom_inspects for the signature).
   @foom.expose({ announcement: "Returns a 0–100 punchiness score for a line of copy." })
   async rate(text: string): Promise<number> {
     const words = await this.wordCount(text);
@@ -196,7 +195,7 @@ export default class Pitchwright extends Program(Idea) {
   }
 
   // Tool expose: a first-class native tool the harness advertises up front, with a
-  // full parameter schema. Persists the result to disk.
+  // full parameter schema.
   @foom.expose({ tool: { description: "Persist the final pitch as JSON to ./pitch.json." } })
   async save(pitch: Pitch): Promise<void> {
     await writeFile("./pitch.json", `${JSON.stringify(pitch, null, 2)}\n`);
@@ -207,6 +206,17 @@ export default class Pitchwright extends Program(Idea) {
 ```bash
 microfoom run examples/pitch.ts "a budgeting app for freelancers" --tui
 ```
+
+## How the agent talks to your program
+
+An agent running inside a microfoom runtime interacts with it through 4 native tools — surfaced as structured function calls.
+
+- `foom_return(value)` — hand back the turn's result, validated against your schema.
+- `foom_call(method_name, args)` — invoke one of your `@foom.expose`d methods.
+- `foom_throw(message, code?)` — abort the turn with a deliberate, typed error.
+- `foom_inspect(method_name)` — look up an exposed method's parameter schema before calling it.
+
+Other than these 4 tools and a few extra lines added to its system prompt, an agent spawned by a coordination script is no different from one spawned by a CLI, because it uses the same default configuration of the harness.
 
 ## Turn modes
 
@@ -241,17 +251,6 @@ A long run can be **killed and restarted without losing finished work**. Pass a 
 - **`store: false`** — `.with({ store: false })` opts a turn out: always run fresh, never recalled.
 
 Turns inside a stateful `session()` are not memoized — their shared transcript can't be reconstructed on recall.
-
-## How the agent talks to your program
-
-An agent running inside a microfoom runtime interacts with it through 4 native tools — surfaced as structured function calls.
-
-- `foom_return(value)` — hand back the turn's result, validated against your schema.
-- `foom_call(method_name, args)` — invoke one of your `@foom.expose`d methods.
-- `foom_throw(message, code?)` — abort the turn with a deliberate, typed error.
-- `foom_inspect(method_name)` — look up an exposed method's parameter schema before calling it.
-
-Other than these 4 tools and a few extra lines added to its system prompt, an agent spawned by a coordination script is no different from one spawned by a CLI, because it uses the same default configuration of the harness.
 
 ## Configuration
 
@@ -296,23 +295,15 @@ Register the harnesses you want under names, then select per scope via `@foom.co
 The CLI runs a program file with zero boilerplate — model/auth resolved from the pi harness, the program result on stdout, observability on stderr.
 
 ```sh
-<<<<<<< Updated upstream
-microfoom run ./researcher.ts "tides"
-microfoom run ./researcher.ts "tides" --json        # result as JSON
-microfoom run ./researcher.ts "tides" --harness pi # 
-microfoom run ./researcher.ts "tides" --store ./.microfoom/tides.jsonl  # store agent turn outcomes, re-run the same command to resume
-=======
 microfoom run examples/pitch.ts "a budgeting app for freelancers"
 microfoom run examples/pitch.ts "a budgeting app" --json        # result as JSON
 microfoom run examples/pitch.ts "a budgeting app" --store ./.microfoom/pitch.jsonl  # store turn outcomes; re-run to resume
-microfoom run examples/audit.ts "acme.com" --harness fake        # offline, deterministic, no model (string-typed turns)
->>>>>>> Stashed changes
 ```
 
 Add `--tui` to open a two-pane inspector: the live span tree on the left, the agent's transcript for the selected span on the right.
 
 ```sh
-microfoom run examples/pitch.ts "a budgeting app" --tui
+microfoom run examples/pitch.ts "a budgeting app" --tui --store /tmp/pitch_store.jsonl
 ```
 
 <div align="center">

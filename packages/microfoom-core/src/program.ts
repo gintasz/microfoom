@@ -8,6 +8,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash } from "node:crypto";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
+import dedent from "dedent";
 import { ConcurrencyGate, type ConcurrencyLease } from "./concurrency.js";
 import { type AgentConfig, durationToMs, mergeConfigChain } from "./config.js";
 import {
@@ -604,12 +605,15 @@ function assertNoLockedChange(extra: AgentOptions): void {
   );
 }
 
+// Strip a tagged-template prompt's source indentation so a deeply-nested literal
+// doesn't ship its leading whitespace (wasted tokens + noise) to the model. dedent
+// measures indent from the STATIC parts only, so an interpolated multi-line value
+// passes through verbatim (it can't drag the common indent to zero). It also resolves
+// escapes correctly off `.raw`: `\n`/`\t` become newline/tab, while `\d`/`C:\Users`
+// keep their backslash — the raw cooked strings array silently drops those. Trims the
+// leading/trailing blank line by default (was our explicit `.trim()`).
 function render(strings: TemplateStringsArray, values: readonly unknown[]): string {
-  let out = strings[0] ?? "";
-  for (let index = 0; index < values.length; index += 1) {
-    out += String(values[index]) + (strings[index + 1] ?? "");
-  }
-  return out.trim();
+  return dedent(strings, ...values);
 }
 
 function readUsage(runtime: Runtime): AgentUsage {
