@@ -59,13 +59,22 @@ function exitWithMessage(code: number, message: string): void {
   process.stderr.write(`${message}\n`, () => process.exit(code));
 }
 
+function exitAfterTraceFlush(code: number): void {
+  stopObserving?.();
+  if (traceStream === undefined || traceStream.destroyed || traceStream.writableEnded) {
+    process.exit(code);
+  }
+  traceStream.end(() => process.exit(code));
+}
+
 const handleFatalError = (error: unknown): void => {
   if (
     interrupted &&
     error instanceof Error &&
     (error.name === "AgentCancelledError" || error.name === "AbortError")
   ) {
-    process.exit(INTERRUPTED_EXIT_CODE);
+    exitAfterTraceFlush(INTERRUPTED_EXIT_CODE);
+    return;
   }
   if (fatalHandled) {
     return;

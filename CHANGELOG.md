@@ -6,6 +6,8 @@ All notable changes to Unigent are recorded here. This project follows
 
 ## [Unreleased]
 
+- Flush the terminal cancellation trace before the CLI exits on `SIGINT`.
+
 ## [0.1.1] - 2026-07-14
 
 - Publish the SDK and CLI as `@unigent/sdk` and `@unigent/cli` under the Unigent organization.

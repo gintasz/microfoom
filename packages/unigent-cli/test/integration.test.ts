@@ -233,9 +233,9 @@ describe("Unigent CLI process integration", () => {
         child.kill("SIGINT");
       }
     });
-    const exit = new Promise<void>((resolveExit) => child.once("exit", () => resolveExit()));
+    const exit = new Promise<number | null>((resolveExit) => child.once("exit", resolveExit));
     const traceText = await readStream(traceStream);
-    await exit;
+    const exitCode = await exit;
     const events = traceText
       .trim()
       .split("\n")
@@ -245,6 +245,7 @@ describe("Unigent CLI process integration", () => {
       });
 
     expect(interrupted).toBe(true);
+    expect(exitCode).toBe(130);
     expect(events.at(-1)).toMatchObject({ type: "span_end", outcome: "cancelled" });
   });
 });
