@@ -6,6 +6,9 @@ All notable changes to Unigent are recorded here. This project follows
 
 ## [Unreleased]
 
+- Fail releases early when npm dist-tag promotion credentials are missing, and verify `latest`
+  installs with a fresh npm cache after promotion.
+
 ## [0.1.3] - 2026-07-14
 
 - Keep Pi vendor declarations behind a stable SDK facade so strict consumers can compile with

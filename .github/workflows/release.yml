@@ -14,8 +14,9 @@ name: Release
 # Pushing a v* tag runs this workflow: verify the tag matches every package.json
 # version, run the full gate, publish every package under `next`, verify the exact
 # registry artifacts as clean consumers, then move `latest`. A failed verification
-# leaves the previous `latest` untouched. Publishing needs npm trusted publishing
-# or the NPM_TOKEN secret; without either, the stage step fails safely.
+# leaves the previous `latest` untouched. Staging supports npm trusted publishing,
+# but dist-tag promotion requires the NPM_TOKEN secret because npm OIDC only
+# authenticates publish operations.
 
 on:
   push:
@@ -67,6 +68,15 @@ jobs:
             fi
           done < <(git ls-files 'package.json' 'packages/*/package.json')
           [ "$mismatch" = 0 ] || exit 1
+
+      - name: Require npm promotion token
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -z "${NODE_AUTH_TOKEN:-}" ]; then
+            echo "::error::NPM_TOKEN is required because npm OIDC does not authorize dist-tag changes"
+            exit 1
+          fi
 
       # Full gate, identical to PR CI (build + typecheck + lint + tests + audit +
       # docs + api). A tag pushed directly, bypassing a PR, is still fully vetted.

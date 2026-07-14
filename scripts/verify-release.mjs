@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import process from "node:process";
@@ -13,7 +13,7 @@ function sleep(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
-async function fetchManifest(packageName) {
+async function fetchPackument(packageName) {
   const cacheBuster = `${releaseVersion}-${Date.now()}`;
   const response = await fetch(
     `${REGISTRY_ROOT}/${encodeURIComponent(packageName)}?release=${cacheBuster}`,
@@ -25,20 +25,36 @@ async function fetchManifest(packageName) {
   if (!response.ok) {
     return;
   }
-  const packument = await response.json();
-  return packument.versions?.[releaseVersion];
+  return response.json();
 }
 
 async function waitForManifests() {
   const deadline = Date.now() + PROPAGATION_TIMEOUT_MILLISECONDS;
   while (true) {
-    const manifests = await Promise.all(releasePackages.map(fetchManifest));
+    const packuments = await Promise.all(releasePackages.map(fetchPackument));
+    const manifests = packuments.map((packument) => packument?.versions?.[releaseVersion]);
     if (manifests.every((manifest) => manifest !== undefined)) {
       return new Map(releasePackages.map((packageName, index) => [packageName, manifests[index]]));
     }
     if (Date.now() >= deadline) {
       const missing = releasePackages.filter((_, index) => manifests[index] === undefined);
       throw new Error(`registry propagation timed out for ${missing.join(", ")}`);
+    }
+    await sleep(PROPAGATION_POLL_MILLISECONDS);
+  }
+}
+
+async function waitForLatestTags() {
+  const deadline = Date.now() + PROPAGATION_TIMEOUT_MILLISECONDS;
+  while (true) {
+    const packuments = await Promise.all(releasePackages.map(fetchPackument));
+    const current = packuments.map((packument) => packument?.["dist-tags"]?.latest);
+    if (current.every((version) => version === releaseVersion)) {
+      return;
+    }
+    if (Date.now() >= deadline) {
+      const stale = releasePackages.filter((_, index) => current[index] !== releaseVersion);
+      throw new Error(`latest tag propagation timed out for ${stale.join(", ")}`);
     }
     await sleep(PROPAGATION_POLL_MILLISECONDS);
   }
@@ -115,26 +131,46 @@ if (result.output !== "typed-ok") throw new Error(\`unexpected output: \${result
   );
 }
 
-function verifyConsumerInstall(releaseRoot) {
+function verifyConsumerInstall(releaseRoot, verifyLatest) {
   const consumer = join(releaseRoot, "consumer");
+  const npmCache = join(releaseRoot, "npm-cache");
   mkdirSync(consumer);
   writeConsumerFiles(consumer);
   run(
     "npm",
     [
       "install",
+      "--cache",
+      npmCache,
       "--min-release-age=0",
       "--no-fund",
+      "--prefer-online",
       "--save-exact",
-      `@unigent/sdk@${releaseVersion}`,
+      verifyLatest ? "@unigent/sdk" : `@unigent/sdk@${releaseVersion}`,
       "typescript@5.9.3",
       "@types/node@24.13.2",
     ],
     { cwd: consumer },
   );
-  run("npm", ["install", "--min-release-age=0", "--no-fund", "is-number@7.0.0"], {
-    cwd: consumer,
-  });
+  const installedSdk = JSON.parse(
+    readFileSync(join(consumer, "node_modules", "@unigent", "sdk", "package.json"), "utf8"),
+  );
+  if (installedSdk.version !== releaseVersion) {
+    throw new Error(`installed SDK is ${installedSdk.version}; expected ${releaseVersion}`);
+  }
+  run(
+    "npm",
+    [
+      "install",
+      "--cache",
+      npmCache,
+      "--min-release-age=0",
+      "--no-fund",
+      "--prefer-online",
+      "is-number@7.0.0",
+    ],
+    { cwd: consumer },
+  );
   run(process.execPath, ["runtime-smoke.mjs"], { cwd: consumer });
   run(process.execPath, [join(consumer, "node_modules", "typescript", "bin", "tsc")], {
     cwd: consumer,
@@ -142,17 +178,21 @@ function verifyConsumerInstall(releaseRoot) {
   run("npm", ["audit", "--audit-level=high"], { cwd: consumer });
 }
 
-function verifyGlobalCli(releaseRoot) {
+function verifyGlobalCli(releaseRoot, verifyLatest) {
   const globalRoot = join(releaseRoot, "global");
+  const npmCache = join(releaseRoot, "npm-cache");
   mkdirSync(globalRoot);
   run("npm", [
     "install",
+    "--cache",
+    npmCache,
     "--global",
     "--prefix",
     globalRoot,
     "--min-release-age=0",
     "--no-fund",
-    `@unigent/cli@${releaseVersion}`,
+    "--prefer-online",
+    verifyLatest ? "@unigent/cli" : `@unigent/cli@${releaseVersion}`,
   ]);
   const executable = join(globalRoot, "bin", "unigent");
   const version = run(executable, ["--version"], { stdio: "pipe" }).trim();
@@ -167,12 +207,18 @@ function verifyGlobalCli(releaseRoot) {
 
 const temporaryRoot = mkdtempSync(join(tmpdir(), "unigent-registry-release-"));
 try {
+  const verifyLatest = process.argv.includes("--latest");
+  if (verifyLatest) {
+    await waitForLatestTags();
+  }
   const manifests = await waitForManifests();
   assertManifestGraph(manifests);
   await sleep(RELEASE_AGE_CLOCK_SKEW_MILLISECONDS);
-  verifyConsumerInstall(temporaryRoot);
-  verifyGlobalCli(temporaryRoot);
-  process.stdout.write(`registry verification passed for ${releaseVersion}\n`);
+  verifyConsumerInstall(temporaryRoot, verifyLatest);
+  verifyGlobalCli(temporaryRoot, verifyLatest);
+  process.stdout.write(
+    `${verifyLatest ? "latest" : "exact"} registry verification passed for ${releaseVersion}\n`,
+  );
 } finally {
   rmSync(temporaryRoot, { recursive: true, force: true });
 }
