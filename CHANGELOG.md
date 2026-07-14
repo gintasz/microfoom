@@ -6,8 +6,8 @@ All notable changes to Unigent are recorded here. This project follows
 
 ## [Unreleased]
 
-- Fail releases early when npm dist-tag promotion credentials are missing, and verify `latest`
-  installs with a fresh npm cache after promotion.
+- Simplify releases to publish dependency-first directly to `latest` through npm trusted
+  publishing, followed by fresh-cache registry verification.
 
 ## [0.1.3] - 2026-07-14
 

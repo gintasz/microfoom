@@ -26,4 +26,4 @@ function run(command, arguments_, options = {}) {
   });
 }
 
-export { releasePackages, releaseVersion, repoRoot, run };
+export { releasePackages, releaseVersion, run };

@@ -26,3 +26,13 @@ corepack pnpm run check:full # FULL DoD gate (adds arch, spell, deps, dead, dup,
 ```
 
 Live E2E skips only when a backend is unavailable. A red authenticated run is a regression.
+
+# Releases
+
+All seven public packages in `scripts/release-packages.mjs` use one lockstep version. Before pushing
+a `vX.Y.Z` tag, update every package manifest, version literal, lockfile, and `CHANGELOG.md`; run the
+deterministic validation above, excluding live E2E unless the user explicitly requests it; then
+commit and push the matching tag. `.github/workflows/release.yml` is the normal publish entrypoint:
+it publishes dependency-first to `latest` through npm trusted publishing and verifies fresh-cache
+SDK and global CLI installs. Monitor the workflow and confirm every package's `latest` tag before
+reporting success. Do not manually publish or change dist-tags during a normal release.
