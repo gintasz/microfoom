@@ -4,7 +4,7 @@
 //   unigent examples/hello.ts "Chuck Norris"
 
 import process from "node:process";
-import { agent, args, piAgent } from "@unigent/sdk";
+import { agent, args, piAgent } from "unigent-sdk";
 import { z } from "zod";
 
 const Name = z.string().min(1);

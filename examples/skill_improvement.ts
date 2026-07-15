@@ -6,7 +6,7 @@
 // Run it:
 //   unigent examples/skill_improvement.ts --rounds 3 --batchSize 3
 
-import { agent, args, createFileCheckpointStore, done, piAgent } from "@unigent/sdk";
+import { agent, args, createFileCheckpointStore, done, piAgent } from "unigent-sdk";
 import { z } from "zod";
 
 const Input = z.object({

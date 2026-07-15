@@ -5,15 +5,7 @@ import { fileURLToPath } from "node:url";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 
-const releasePackages = [
-  "@unigent/core",
-  "@unigent/test",
-  "@unigent/adapter-claude-cli",
-  "@unigent/adapter-codex-cli",
-  "@unigent/adapter-pi",
-  "@unigent/sdk",
-  "@unigent/cli",
-];
+const releasePackages = ["unigent-sdk", "unigent-cli"];
 
 const releaseVersion = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8")).version;
 

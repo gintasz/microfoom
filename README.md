@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/@unigent/sdk"><img alt="npm version" src="https://img.shields.io/npm/v/@unigent/sdk?logo=npm&logoColor=white" /></a>
+  <a href="https://www.npmjs.com/package/unigent-sdk"><img alt="npm version" src="https://img.shields.io/npm/v/unigent-sdk?logo=npm&logoColor=white" /></a>
   <a href="https://github.com/gintasz/unigent/blob/main/LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-0A7EA4" /></a>
   <a href="https://github.com/gintasz/unigent/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/gintasz/unigent?style=flat" /></a>
   <img alt="Works with" src="https://img.shields.io/badge/works_with-555555" />
@@ -29,8 +29,8 @@ The live trace inspector (`unigent tui`) additionally requires [Bun](https://bun
 Published packages are ESM-only.
 
 ```bash
-npm install @unigent/sdk zod
-npm install -g @unigent/cli
+npm install unigent-sdk zod
+npm install -g unigent-cli
 ```
 
 The examples below use [Zod](https://zod.dev/), but Unigent accepts any
@@ -66,7 +66,7 @@ adapters use the authenticated official CLIs installed on your machine.
 ## Your first agent
 
 ```typescript
-import { agent, piAgent } from "@unigent/sdk";
+import { agent, piAgent } from "unigent-sdk";
 
 const writer = agent({
   name: "writer",
@@ -93,7 +93,7 @@ Every run starts with `.run(prompt)`. The optional second argument controls what
 schema for a typed value or `done` for side-effect-only work.
 
 ```typescript
-import { done } from "@unigent/sdk";
+import { done } from "unigent-sdk";
 import { z } from "zod";
 
 const prose = await writer.run("Explain the tradeoff.");
@@ -170,7 +170,7 @@ from a `.ts` entry when the optional `typescript` peer is installed.
 Only values listed in `tools` are callable. Deliberate agent failure is also opt-in:
 
 ```typescript
-import { fail } from "@unigent/sdk";
+import { fail } from "unigent-sdk";
 
 const reviewer = agent({ ...options, tools: [fail] });
 ```
@@ -312,7 +312,7 @@ The trace retains its complete history in 250-row pages, and the activity pane k
 arguments into one natural value:
 
 ```typescript
-import { args } from "@unigent/sdk";
+import { args } from "unigent-sdk";
 import { z } from "zod";
 
 const idea = await args(z.string().min(1));
@@ -367,7 +367,7 @@ calls. Their fingerprint covers the prompt, return schema, harness adapter, mode
 prompt, tools, and explicit checkpoint keys.
 
 ```typescript
-import { agent, createFileCheckpointStore } from "@unigent/sdk";
+import { agent, createFileCheckpointStore } from "unigent-sdk";
 
 const defaults = {
   backend: piAgent(),
@@ -395,8 +395,8 @@ The SDK includes a deterministic harness adapter under its `test` subpath, so te
 Unigent package.
 
 ```typescript
-import { agent } from "@unigent/sdk";
-import { createScriptedBackend } from "@unigent/sdk/test";
+import { agent } from "unigent-sdk";
+import { createScriptedBackend } from "unigent-sdk/test";
 import { z } from "zod";
 
 const backend = createScriptedBackend([
@@ -424,7 +424,7 @@ Unigent talks to each harness through a small adapter that opens sessions, runs 
 Unigent tools, streams events, reports usage, and forks conversations where supported.
 
 ```typescript
-import { claudeCli, codexCli, piAgent } from "@unigent/sdk";
+import { claudeCli, codexCli, piAgent } from "unigent-sdk";
 
 const pi = piAgent();
 const claude = claudeCli();

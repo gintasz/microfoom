@@ -17,16 +17,16 @@ facade, any harness, or any frontend.
 Use a strict pnpm monorepo with lockstep versions.
 
 The private root coordinator is named `@unigent/workspace`; the user-facing SDK is named
-`@unigent/sdk`; the CLI is named `@unigent/cli`. Internal dependencies use `workspace:*` and are
+`unigent-sdk`; the CLI is named `unigent-cli`. Internal dependencies use `workspace:*` and are
 bundled into the public package that consumes them.
 
 - Private `@unigent/core` (`packages/unigent-core`) owns the backend port, tools, completion,
   checkpoints, arguments, errors, usage, trace model, and every reusable runtime policy.
-- `@unigent/sdk` (`packages/unigent`) is the public facade. It bundles and re-exports the core, the
-  three official adapter factories, and deterministic helpers under `@unigent/sdk/test`.
+- `unigent-sdk` (`packages/unigent`) is the public facade. It bundles and re-exports the core, the
+  three official adapter factories, and deterministic helpers under `unigent-sdk/test`.
 - `@unigent/adapter-pi`, `@unigent/adapter-claude-cli`, and `@unigent/adapter-codex-cli`
   are private and contain only backend translation.
-- `@unigent/cli` owns process isolation and terminal presentation and bundles the private core.
+- `unigent-cli` owns process isolation and terminal presentation and bundles the private core.
 - Private `@unigent/test` owns deterministic backend fixtures. `@unigent/e2e` remains private.
 - Dependency direction is application/facade → adapter → core, while generic frontends and test
   fixtures depend directly on core. Core imports no facade or adapter; adapters import no facade.
@@ -55,7 +55,7 @@ schema derivation uses the TypeScript compiler API at runtime.
 ## Consequences
 
 Adding a backend does not change core. Official adapters are curated into the SDK; third-party
-adapters depend on the public `Backend` contract exported by `@unigent/sdk`. Cross-package imports
+adapters depend on the public `Backend` contract exported by `unigent-sdk`. Cross-package imports
 go through package exports inside the workspace. The package contract rejects any public package
-set other than `@unigent/sdk` and `@unigent/cli`. Tool swaps update this catalogue; changes to a
+set other than `unigent-sdk` and `unigent-cli`. Tool swaps update this catalogue; changes to a
 tool's architectural role require another ADR.

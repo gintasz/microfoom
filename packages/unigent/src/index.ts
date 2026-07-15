@@ -1,4 +1,4 @@
-/** `@unigent/sdk` — one typed API for the official Unigent harnesses. */
+/** `unigent-sdk` — one typed API for the official Unigent harnesses. */
 
 import { piAgent as createPiAgent } from "@unigent/adapter-pi";
 import type { Backend } from "@unigent/core";

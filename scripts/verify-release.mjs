@@ -84,8 +84,8 @@ function writeConsumerFiles(consumer) {
   writeFileSync(
     join(consumer, "runtime-smoke.mjs"),
     `import assert from "node:assert/strict";
-import { agent, claudeCli, codexCli, piAgent } from "@unigent/sdk";
-import { createScriptedBackend } from "@unigent/sdk/test";
+import { agent, claudeCli, codexCli, piAgent } from "unigent-sdk";
+import { createScriptedBackend } from "unigent-sdk/test";
 
 const backend = createScriptedBackend([{ text: "offline-ok" }]);
 const result = await agent({ name: "registry-smoke", backend, model: "fake" }).run("offline");
@@ -98,8 +98,8 @@ assert.equal(codexCli({ nativeTools: [] }).name, "codex-cli");
   );
   writeFileSync(
     join(consumer, "strict-consumer.ts"),
-    `import { agent, type AgentRunResult } from "@unigent/sdk";
-import { createScriptedBackend } from "@unigent/sdk/test";
+    `import { agent, type AgentRunResult } from "unigent-sdk";
+import { createScriptedBackend } from "unigent-sdk/test";
 
 const backend = createScriptedBackend([{ text: "typed-ok" }]);
 const result: AgentRunResult<string> = await agent({
@@ -146,14 +146,14 @@ function verifyConsumerInstall(releaseRoot, verifyLatest) {
       "--no-fund",
       "--prefer-online",
       "--save-exact",
-      verifyLatest ? "@unigent/sdk" : `@unigent/sdk@${releaseVersion}`,
+      verifyLatest ? "unigent-sdk" : `unigent-sdk@${releaseVersion}`,
       "typescript@5.9.3",
       "@types/node@24.13.2",
     ],
     { cwd: consumer },
   );
   const installedSdk = JSON.parse(
-    readFileSync(join(consumer, "node_modules", "@unigent", "sdk", "package.json"), "utf8"),
+    readFileSync(join(consumer, "node_modules", "unigent-sdk", "package.json"), "utf8"),
   );
   if (installedSdk.version !== releaseVersion) {
     throw new Error(`installed SDK is ${installedSdk.version}; expected ${releaseVersion}`);
@@ -192,7 +192,7 @@ function verifyGlobalCli(releaseRoot, verifyLatest) {
     "--min-release-age=0",
     "--no-fund",
     "--prefer-online",
-    verifyLatest ? "@unigent/cli" : `@unigent/cli@${releaseVersion}`,
+    verifyLatest ? "unigent-cli" : `unigent-cli@${releaseVersion}`,
   ]);
   const executable = join(globalRoot, "bin", "unigent");
   const version = run(executable, ["--version"], { stdio: "pipe" }).trim();

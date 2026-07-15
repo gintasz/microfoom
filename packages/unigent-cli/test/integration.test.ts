@@ -54,7 +54,7 @@ describe("Unigent CLI process integration", () => {
     const exitCode = await exit;
 
     expect(exitCode).toBe(0);
-    expect(stdout).toBe("0.1.3\n");
+    expect(stdout).toBe("0.1.4\n");
   });
 
   it("reports a missing script without a raw ENOENT", async () => {

@@ -6,8 +6,16 @@ All notable changes to Unigent are recorded here. This project follows
 
 ## [Unreleased]
 
-- Simplify releases to publish dependency-first directly to `latest` through npm trusted
-  publishing, followed by fresh-cache registry verification.
+## [0.1.4] - 2026-07-15
+
+- Replace the seven scoped public packages with two unscoped packages: `unigent-sdk` and
+  `unigent-cli`.
+- Bundle private core, adapter, and test workspaces into the public artifacts while keeping
+  third-party runtime dependencies external and visible to npm.
+- Reject packed JavaScript or declarations that leak private `@unigent/*` imports, then verify
+  strict TypeScript, offline runtime behavior, repeat installs, and global CLI execution.
+- Simplify releases to publish directly to `latest` through npm trusted publishing, followed by
+  fresh-cache registry verification and creation of the matching GitHub release.
 
 ## [0.1.3] - 2026-07-14
 
@@ -35,7 +43,8 @@ All notable changes to Unigent are recorded here. This project follows
 
 - Attempted initial release; withdrawn after the SDK package name was rejected.
 
-[Unreleased]: https://github.com/gintasz/unigent/compare/v0.1.3...HEAD
+[Unreleased]: https://github.com/gintasz/unigent/compare/v0.1.4...HEAD
+[0.1.4]: https://github.com/gintasz/unigent/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/gintasz/unigent/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/gintasz/unigent/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/gintasz/unigent/releases/tag/v0.1.1

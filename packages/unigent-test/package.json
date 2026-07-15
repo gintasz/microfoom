@@ -1,6 +1,7 @@
 {
   "name": "@unigent/test",
-  "version": "0.1.3",
+  "version": "0.1.4",
+  "private": true,
   "type": "module",
   "description": "Reusable deterministic backend fixtures for Unigent applications and adapters",
   "keywords": [

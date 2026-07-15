@@ -2,7 +2,7 @@
   "$schema": "https://turborepo.dev/schema.json",
   "ui": "stream",
   "tasks": {
-    "//#typecheck": { "cache": false },
+    "//#typecheck": { "cache": false, "dependsOn": ["//#build"] },
     "//#format:check": { "cache": false },
     "//#lint": { "cache": false },
     "//#lint:types": { "cache": false, "dependsOn": ["//#typecheck"] },

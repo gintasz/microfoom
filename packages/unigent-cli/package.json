@@ -1,6 +1,6 @@
 {
-  "name": "@unigent/cli",
-  "version": "0.1.3",
+  "name": "unigent-cli",
+  "version": "0.1.4",
   "type": "module",
   "description": "Node.js script runner and Bun-powered live trace inspector for Unigent",
   "keywords": [
@@ -37,18 +37,21 @@
     "unigent": "./dist/cli.js"
   },
   "scripts": {
+    "build:bundle": "tsdown",
     "prepublishOnly": "node ../../scripts/assert-package-docs.mjs"
   },
   "dependencies": {
     "@opentui/core": "0.4.2",
     "@opentui/react": "0.4.2",
-    "@unigent/core": "workspace:*",
+    "ajv": "8.17.1",
     "react": "19.2.0"
   },
   "devDependencies": {
     "@termless/core": "0.7.0",
     "@termless/xtermjs": "0.4.0",
-    "@types/react": "19.2.2"
+    "@types/react": "19.2.2",
+    "@unigent/core": "workspace:*",
+    "tsdown": "0.22.8"
   },
   "peerDependencies": {
     "typescript": "5.9.3"

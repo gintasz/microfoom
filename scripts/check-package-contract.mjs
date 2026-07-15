@@ -7,17 +7,13 @@ import { fileURLToPath } from "node:url";
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const SCOPE_PREFIX = /^@/u;
 const TYPESCRIPT_DECLARATION = /\.d\.ts(?:\.map)?$/u;
+const PRIVATE_PACKAGE_SPECIFIER = /["']@unigent\//u;
+const RAW_HTML_ALIGNMENT = /\balign="([^"]+)"/gu;
+const RAW_HTML_CLOSING_TAG_SUFFIX = /<\/(?:h1|p)>[^\s]/u;
+const VALID_HTML_ALIGNMENTS = new Set(["center", "justify", "left", "right"]);
 const packagesRoot = join(repoRoot, "packages");
 const canonicalReadme = readFileSync(join(repoRoot, "README.md"), "utf8");
-const EXPECTED_PUBLIC_PACKAGES = [
-  "@unigent/adapter-claude-cli",
-  "@unigent/adapter-codex-cli",
-  "@unigent/adapter-pi",
-  "@unigent/cli",
-  "@unigent/core",
-  "@unigent/sdk",
-  "@unigent/test",
-];
+const EXPECTED_PUBLIC_PACKAGES = ["unigent-cli", "unigent-sdk"];
 
 function run(command, args, cwd = repoRoot) {
   return execFileSync(command, args, { cwd, encoding: "utf8", stdio: "pipe" });
@@ -86,19 +82,40 @@ function assertPortableReadme() {
   }
 }
 
+function assertReadmeRawHtml() {
+  const invalidAlignment = [...canonicalReadme.matchAll(RAW_HTML_ALIGNMENT)]
+    .map((match) => match[1])
+    .find((alignment) => alignment === undefined || !VALID_HTML_ALIGNMENTS.has(alignment));
+  if (invalidAlignment !== undefined) {
+    throw new Error(`README contains an invalid raw HTML alignment: ${invalidAlignment}`);
+  }
+  if (RAW_HTML_CLOSING_TAG_SUFFIX.test(canonicalReadme)) {
+    throw new Error("README contains text attached to a raw HTML closing tag");
+  }
+  for (const tag of ["h1", "p"]) {
+    const openingCount = canonicalReadme.match(new RegExp(`<${tag}(?:\\s|>)`, "gu"))?.length ?? 0;
+    const closingCount = canonicalReadme.match(new RegExp(`</${tag}>`, "gu"))?.length ?? 0;
+    if (openingCount !== closingCount) {
+      throw new Error(
+        `README raw HTML <${tag}> tags are unbalanced: ${openingCount} opening, ${closingCount} closing`,
+      );
+    }
+  }
+}
+
 function assertCliArtifactProfile(archive) {
   const entries = archiveEntries(archive);
   const declarations = [...entries].filter(
     (entry) => entry.startsWith("package/dist/") && TYPESCRIPT_DECLARATION.test(entry),
   );
   if (declarations.length > 0) {
-    throw new Error(`@unigent/cli publishes unused declarations: ${declarations.join(", ")}`);
+    throw new Error(`unigent-cli publishes unused declarations: ${declarations.join(", ")}`);
   }
   const sourceMaps = [...entries].filter(
     (entry) => entry.startsWith("package/dist/") && entry.endsWith(".js.map"),
   );
   if (sourceMaps.length === 0) {
-    throw new Error("@unigent/cli publishes no JavaScript source maps");
+    throw new Error("unigent-cli publishes no JavaScript source maps");
   }
   for (const sourceMap of sourceMaps) {
     const contents = JSON.parse(run("tar", ["-xOf", archive, sourceMap])).sourcesContent;
@@ -109,6 +126,23 @@ function assertCliArtifactProfile(archive) {
     ) {
       throw new Error(`${sourceMap} does not embed its TypeScript source`);
     }
+  }
+  const cliSource = run("tar", ["-xOf", archive, "package/dist/cli.js"]);
+  if (!cliSource.startsWith("#!/usr/bin/env node\n")) {
+    throw new Error("unigent-cli does not preserve its executable shebang");
+  }
+}
+
+function assertNoPrivatePackageImports(archive, packageName) {
+  const entries = [...archiveEntries(archive)].filter(
+    (entry) =>
+      entry.startsWith("package/dist/") && (entry.endsWith(".js") || entry.endsWith(".d.ts")),
+  );
+  const leakingEntry = entries.find((entry) =>
+    PRIVATE_PACKAGE_SPECIFIER.test(run("tar", ["-xOf", archive, entry])),
+  );
+  if (leakingEntry !== undefined) {
+    throw new Error(`${packageName} leaks a private @unigent/* import in ${leakingEntry}`);
   }
 }
 
@@ -153,6 +187,7 @@ const temporaryRoot = mkdtempSync(join(tmpdir(), "unigent-package-contract-"));
 
 try {
   assertPortableReadme();
+  assertReadmeRawHtml();
   run(process.execPath, ["scripts/sync-package-docs.mjs"]);
   const archives = new Map();
   const manifests = new Map();
@@ -170,7 +205,8 @@ try {
     const publishedManifest = packedManifest(archive);
     assertPublishedManifest(publishedManifest);
     assertPackedDocumentation(archive, manifest.name);
-    if (manifest.name === "@unigent/cli") {
+    assertNoPrivatePackageImports(archive, manifest.name);
+    if (manifest.name === "unigent-cli") {
       assertCliArtifactProfile(archive);
     }
     run("publint", [archive, "--strict"]);
@@ -202,12 +238,12 @@ try {
 
   writeFileSync(
     join(consumer, "index.mjs"),
-    `import { agent, claudeCli, codexCli, done, piAgent } from "@unigent/sdk";
-import { parseArgs } from "@unigent/sdk/args";
-import { startMcpToolServer } from "@unigent/sdk/mcp";
-import { createScriptedBackend } from "@unigent/sdk/test";
-import { fail } from "@unigent/sdk/tools";
-import { TraceProjection } from "@unigent/sdk/trace";
+    `import { agent, claudeCli, codexCli, done, piAgent } from "unigent-sdk";
+import { parseArgs } from "unigent-sdk/args";
+import { startMcpToolServer } from "unigent-sdk/mcp";
+import { createScriptedBackend } from "unigent-sdk/test";
+import { fail } from "unigent-sdk/tools";
+import { TraceProjection } from "unigent-sdk/trace";
 
 const values = [
   agent,
@@ -227,14 +263,19 @@ const names = [
 if (names.join(",") !== "pi,claude-cli,codex-cli") {
   throw new Error(\`unexpected adapter names: \${names.join(",")}\`);
 }
+const backend = createScriptedBackend([{ text: "packed-ok" }]);
+const result = await agent({ name: "packed-consumer", backend, model: "fake" }).run("offline");
+if (result.output !== "packed-ok" || backend.requests.length !== 1) {
+  throw new Error("packed SDK offline runtime failed");
+}
 `,
   );
 
   run(process.execPath, ["index.mjs"], consumer);
   writeFileSync(
     join(consumer, "strict-consumer.ts"),
-    `import { agent, type AgentRunResult } from "@unigent/sdk";
-import { createScriptedBackend } from "@unigent/sdk/test";
+    `import { agent, type AgentRunResult } from "unigent-sdk";
+import { createScriptedBackend } from "unigent-sdk/test";
 
 const backend = createScriptedBackend([{ text: "typed-ok" }]);
 const result: AgentRunResult<string> = await agent({
@@ -272,17 +313,17 @@ if (result.output !== "typed-ok") {
     [join(installedPackagePath(consumer, "typescript"), "bin", "tsc")],
     consumer,
   );
-  const cliManifest = manifests.get("@unigent/cli");
+  const cliManifest = manifests.get("unigent-cli");
   if (cliManifest?.bin?.unigent !== "./dist/cli.js") {
-    throw new Error("@unigent/cli does not publish the unigent executable");
+    throw new Error("unigent-cli does not publish the unigent executable");
   }
   const cliHelp = run(
     process.execPath,
-    [join(installedPackagePath(consumer, "@unigent/cli"), "dist/cli.js"), "--help"],
+    [join(installedPackagePath(consumer, "unigent-cli"), "dist/cli.js"), "--help"],
     consumer,
   );
   if (!cliHelp.includes("unigent — run and inspect a Unigent script")) {
-    throw new Error("packed @unigent/cli executable did not print its help");
+    throw new Error("packed unigent-cli executable did not print its help");
   }
 
   const globalRoot = join(temporaryRoot, "global");
@@ -298,13 +339,14 @@ if (result.output !== "typed-ok") {
   ]);
   const globalCli = join(globalRoot, "bin", "unigent");
   if (run(globalCli, ["--version"], consumer).trim() !== cliManifest.version) {
-    throw new Error("globally installed @unigent/cli reported the wrong version");
+    throw new Error("globally installed unigent-cli reported the wrong version");
   }
   if (
     !run(globalCli, ["--help"], consumer).includes("unigent — run and inspect a Unigent script")
   ) {
-    throw new Error("globally installed @unigent/cli did not print its help");
+    throw new Error("globally installed unigent-cli did not print its help");
   }
+  run(globalCli, [join(consumer, "index.mjs")], consumer);
   process.stdout.write(
     "package validation passed (publint, attw, strict consumer, repeat install, runtime, global CLI)\n",
   );

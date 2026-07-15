@@ -1,5 +1,5 @@
 import process from "node:process";
-import { AgentBackendUnavailableError, agent, claudeCli, codexCli, piAgent } from "@unigent/sdk";
+import { AgentBackendUnavailableError, agent, claudeCli, codexCli, piAgent } from "unigent-sdk";
 import { describe, expect, it, type TestContext } from "vitest";
 import { z } from "zod";
 

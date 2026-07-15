@@ -7,7 +7,7 @@
 //   chmod +x standalone.ts
 //   ./standalone.ts "Write a launch announcement for a kebab app"
 
-import { agent, args, claudeCli } from "@unigent/sdk";
+import { agent, args, claudeCli } from "unigent-sdk";
 import { z } from "zod";
 
 const input = await args(z.string().min(1), {

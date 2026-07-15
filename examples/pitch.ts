@@ -7,7 +7,7 @@
 
 import { writeFile } from "node:fs/promises";
 import process from "node:process";
-import { AgentRaisedError, agent, args, done, fail, piAgent } from "@unigent/sdk";
+import { AgentRaisedError, agent, args, done, fail, piAgent } from "unigent-sdk";
 import { z } from "zod";
 
 const WHITESPACE = /\s+/u;

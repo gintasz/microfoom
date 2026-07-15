@@ -1,6 +1,6 @@
 {
   "name": "@unigent/workspace",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "private": true,
   "type": "module",
   "bin": {
@@ -24,7 +24,7 @@
     "url": "git+https://github.com/gintasz/unigent.git"
   },
   "bugs": "https://github.com/gintasz/unigent/issues",
-  "packageManager": "pnpm@10.14.0",
+  "packageManager": "pnpm@10.34.5",
   "engines": {
     "node": ">=24"
   },
@@ -34,7 +34,7 @@
     ]
   },
   "scripts": {
-    "build": "tsc -b",
+    "build": "tsc -b && corepack pnpm --filter unigent-sdk run build:bundle && corepack pnpm --filter unigent-cli run build:bundle",
     "clean": "tsc -b --clean",
     "typecheck": "tsc -b --pretty false && tsc -p tsconfig.test.json --pretty false && tsc -p tsconfig.examples.json --pretty false",
     "test": "tsc -b && vitest run --exclude '**/e2e.test.ts'",
@@ -49,7 +49,7 @@
     "ast": "ast-grep scan",
     "spell": "typos",
     "deps:check": "syncpack lint",
-    "audit": "corepack pnpm audit --audit-level=high",
+    "audit": "node scripts/audit-dependencies.mjs",
     "check:docker": "scripts/ci-docker.sh",
     "dead": "knip",
     "dup": "jscpd packages",
@@ -85,7 +85,7 @@
     "knip": "6.21.0",
     "lefthook": "2.1.9",
     "publint": "0.3.21",
-    "@unigent/sdk": "workspace:*",
+    "unigent-sdk": "workspace:*",
     "syncpack": "15.3.2",
     "tsx": "4.22.4",
     "turbo": "2.10.1",

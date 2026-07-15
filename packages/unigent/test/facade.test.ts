@@ -7,10 +7,10 @@ import {
   type PiAgentOptions,
   parseArgs,
   piAgent,
-} from "@unigent/sdk";
-import { startMcpToolServer } from "@unigent/sdk/mcp";
-import { createScriptedBackend } from "@unigent/sdk/test";
-import { TraceProjection } from "@unigent/sdk/trace";
+} from "unigent-sdk";
+import { startMcpToolServer } from "unigent-sdk/mcp";
+import { createScriptedBackend } from "unigent-sdk/test";
+import { TraceProjection } from "unigent-sdk/trace";
 import { describe, expect, it } from "vitest";
 
 describe("unigent facade", () => {
