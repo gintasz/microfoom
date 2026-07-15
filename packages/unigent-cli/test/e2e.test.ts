@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import process from "node:process";
@@ -23,6 +23,9 @@ const screenshotDirectory = resolve(tmpdir(), "unigent-tui-shots");
 const terminal = createTerminal({ backend: createXtermBackend(), cols: 120, rows: 34 });
 
 beforeAll(async () => {
+  if (!existsSync(cli)) {
+    throw new Error("TUI test requires dist/cli.js; run the workspace build first");
+  }
   mkdirSync(screenshotDirectory, { recursive: true });
   await terminal.spawn([process.execPath, cli, "tui", fixture, "--", "Ada"]);
   await terminal.waitFor("● complete", 20_000);

@@ -66,8 +66,8 @@ jobs:
 
       # Full gate, identical to PR CI (build + typecheck + lint + tests + audit +
       # docs + api). A tag pushed directly, bypassing a PR, is still fully vetted.
-      - run: pnpm run test:tui
       - run: pnpm run check:full
+      - run: pnpm run test:tui
 
       - name: Publish and verify registry artifacts
         run: pnpm run release
