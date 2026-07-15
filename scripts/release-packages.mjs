@@ -5,7 +5,8 @@ import { fileURLToPath } from "node:url";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 
-const releasePackages = ["unigent-sdk", "unigent-cli"];
+// CLI first prevents a lingering first-publish name reservation from leaving an SDK-only release.
+const releasePackages = ["unigent-cli", "unigent-sdk"];
 
 const releaseVersion = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8")).version;
 
