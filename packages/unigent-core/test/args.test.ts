@@ -4,7 +4,8 @@ import { args, parseArgs } from "@unigent/core/args";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
-const DEFAULT_VALIDATION_MESSAGE = /^unigent: .+\n\nUsage: task\.ts "Prompt"\n$/u;
+const DEFAULT_VALIDATION_MESSAGE =
+  /^unigent: .+\n\nUsage: task\.ts "Prompt"\n\nOptions:\n {2}-i {2}Prompt for missing required arguments\.\n$/u;
 
 describe("typed script arguments", () => {
   const originalArguments = process.argv;
@@ -96,7 +97,9 @@ describe("typed script arguments", () => {
     await expect(
       args(z.string(), { description: "Describe a task.", usage: '"Prompt"' }),
     ).rejects.toBe(exit);
-    expect(output).toHaveBeenCalledWith('Describe a task.\n\nUsage: task.ts "Prompt"\n');
+    expect(output).toHaveBeenCalledWith(
+      'Describe a task.\n\nUsage: task.ts "Prompt"\n\nOptions:\n  -i  Prompt for missing required arguments.\n',
+    );
     expect(process.exit).toHaveBeenCalledWith(0);
   });
 
@@ -110,6 +113,21 @@ describe("typed script arguments", () => {
 
     await expect(args(z.string().min(1), { usage: '"Prompt"' })).rejects.toBe(exit);
     expect(output).toHaveBeenCalledWith(expect.stringMatching(DEFAULT_VALIDATION_MESSAGE));
+    expect(process.exit).toHaveBeenCalledWith(1);
+  });
+
+  it("rejects interactive mode without a terminal before collecting input", async () => {
+    process.argv = ["node", "/work/task.ts", "-i"];
+    const output = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const exit = new Error("exit");
+    vi.spyOn(process, "exit").mockImplementation(() => {
+      throw exit;
+    });
+
+    await expect(args(z.object({ name: z.string() }))).rejects.toBe(exit);
+    expect(output).toHaveBeenCalledWith(
+      expect.stringContaining("-i requires an interactive terminal"),
+    );
     expect(process.exit).toHaveBeenCalledWith(1);
   });
 });

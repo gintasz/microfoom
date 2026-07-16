@@ -1,6 +1,6 @@
 {
   "name": "unigent-sdk",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "type": "module",
   "description": "Cross-harness agent orchestration SDK for TypeScript",
   "keywords": [
@@ -68,7 +68,7 @@
     "@earendil-works/pi-coding-agent": "0.80.2",
     "@modelcontextprotocol/sdk": "1.29.0",
     "@standard-schema/spec": "1.1.0",
-    "ajv": "8.17.1",
+    "ajv": "8.20.0",
     "typebox": "1.1.38"
   },
   "devDependencies": {

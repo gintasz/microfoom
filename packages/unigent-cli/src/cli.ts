@@ -25,7 +25,8 @@ Usage:
 
 Arguments after <file> are forwarded to the script. A conventional -- separator from command
 generators is accepted but not required because Unigent stops parsing at <file>. Bun shebangs are
-honored. TUI mode requires Bun.
+honored. -i prompts for missing schema input when running a script. TUI mode requires Bun and does
+not support -i.
 `;
 const DEVELOPMENT_LOADER_PREFIX = "--developmentLoader=";
 const SIGNAL_EXIT_CODE_BASE = 128;

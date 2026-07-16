@@ -19,6 +19,7 @@ const failingFixture = resolve(here, "support/failing_script.ts");
 const positionalFixture = resolve(here, "support/positional_script.ts");
 const rawArgumentsFixture = resolve(here, "support/raw_arguments_script.ts");
 const bunFixture = resolve(here, "support/bun_script.ts");
+const interactiveFixture = resolve(here, "support/interactive_script.ts");
 const screenshotDirectory = resolve(tmpdir(), "unigent-tui-shots");
 const terminal = createTerminal({ backend: createXtermBackend(), cols: 120, rows: 34 });
 
@@ -200,6 +201,90 @@ test("honors a Bun shebang through the TUI", async () => {
     await bunTerminal.waitFor("SCRIPT RUNTIME: bun", 5000);
   } finally {
     await bunTerminal.close();
+  }
+});
+
+test("collects and validates missing arguments in a real terminal", async () => {
+  const interactiveTerminal = createTerminal({
+    backend: createXtermBackend(),
+    cols: 100,
+    rows: 30,
+  });
+  try {
+    await interactiveTerminal.spawn([
+      process.execPath,
+      cli,
+      interactiveFixture,
+      "--depth",
+      "thorough",
+      "-i",
+    ]);
+    await interactiveTerminal.waitFor("--topic (Topic to research):", 5000);
+    interactiveTerminal.type("x");
+    interactiveTerminal.press("Enter");
+    await interactiveTerminal.waitFor("Invalid --topic (Topic to research)", 5000);
+    interactiveTerminal.type("TypeScript agents");
+    interactiveTerminal.press("Enter");
+    await interactiveTerminal.waitFor("owner:", 5000);
+    interactiveTerminal.type("Ada");
+    interactiveTerminal.press("Enter");
+    await interactiveTerminal.waitFor("Add an item to --tags? [Y/n]:", 5000);
+    interactiveTerminal.press("Enter");
+    await interactiveTerminal.waitFor("tags.0:", 5000);
+    interactiveTerminal.type("automation");
+    interactiveTerminal.press("Enter");
+    await interactiveTerminal.waitFor("Add an item to --tags? [y/N]:", 5000);
+    interactiveTerminal.press("Enter");
+    await interactiveTerminal.waitFor("2. port", 5000);
+    interactiveTerminal.type("2");
+    interactiveTerminal.press("Enter");
+    await interactiveTerminal.waitFor("--destination.port:", 5000);
+    interactiveTerminal.type("8080");
+    interactiveTerminal.press("Enter");
+    await interactiveTerminal.waitFor("INTERACTIVE INPUT:", 5000);
+
+    const output = interactiveTerminal.buffer.getText();
+    expect(output).toContain('"topic":"TypeScript agents"');
+    expect(output).toContain('"owner":"Ada"');
+    expect(output).toContain('"depth":"thorough"');
+    expect(output).toContain('"rounds":3');
+    expect(output).toContain('"destination":{"kind":"port","port":8080}');
+  } finally {
+    await interactiveTerminal.close();
+  }
+});
+
+test("cancels interactive collection with the conventional exit code", async () => {
+  const cancellationTerminal = createTerminal({
+    backend: createXtermBackend(),
+    cols: 100,
+    rows: 24,
+  });
+  try {
+    await cancellationTerminal.spawn([process.execPath, cli, interactiveFixture, "-i"]);
+    await cancellationTerminal.waitFor("--topic (Topic to research):", 5000);
+    cancellationTerminal.press("Ctrl+c");
+    await cancellationTerminal.waitForStable(100, 5000);
+    expect(cancellationTerminal.alive).toBe(false);
+    expect(cancellationTerminal.exitInfo).toContain("130");
+    expect(cancellationTerminal.buffer.getText()).not.toContain("INTERACTIVE INPUT:");
+  } finally {
+    await cancellationTerminal.close();
+  }
+});
+
+test("reports that interactive argument collection is unavailable inside the TUI", async () => {
+  const interactiveTui = createTerminal({
+    backend: createXtermBackend(),
+    cols: 100,
+    rows: 28,
+  });
+  try {
+    await interactiveTui.spawn([process.execPath, cli, "tui", interactiveFixture, "-i"]);
+    await interactiveTui.waitFor("● failed", 5000);
+    await interactiveTui.waitFor("unavailable in TUI and piped execution", 5000);
+  } finally {
+    await interactiveTui.close();
   }
 });
 

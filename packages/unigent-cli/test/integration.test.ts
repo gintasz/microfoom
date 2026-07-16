@@ -15,6 +15,7 @@ const bunFixture = resolve(here, "support/bun_script.ts");
 const throwingFixture = resolve(here, "support/throwing_script.ts");
 const throwingWithHandleFixture = resolve(here, "support/throwing_with_handle.ts");
 const signalFixture = resolve(here, "support/signal_script.ts");
+const interactiveFixture = resolve(here, "support/interactive_script.ts");
 const register = resolve(packageRoot, "dist/register.js");
 const cli = resolve(packageRoot, "dist/cli.js");
 const developmentCli = resolve(packageRoot, "../../scripts/unigent-dev.mjs");
@@ -54,7 +55,7 @@ describe("Unigent CLI process integration", () => {
     const exitCode = await exit;
 
     expect(exitCode).toBe(0);
-    expect(stdout).toBe("0.1.4\n");
+    expect(stdout).toBe("0.1.5\n");
   });
 
   it("reports a missing script without a raw ENOENT", async () => {
@@ -69,6 +70,32 @@ describe("Unigent CLI process integration", () => {
     expect(exitCode).toBe(1);
     expect(stderr).toContain(`unigent: script file not found: ${missing}`);
     expect(stderr).not.toContain("ENOENT");
+  });
+
+  it("does not prompt when required input is missing without -i", async () => {
+    const child = spawn(process.execPath, [cli, interactiveFixture], {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    const exit = new Promise<number | null>((resolveCode) => child.once("exit", resolveCode));
+    const stderr = child.stderr === null ? "" : await readStream(child.stderr);
+    const exitCode = await exit;
+
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain("unigent:");
+    expect(stderr).not.toContain("Topic to research:");
+  });
+
+  it("rejects -i immediately when no interactive terminal is attached", async () => {
+    const child = spawn(process.execPath, [cli, interactiveFixture, "-i"], {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    const exit = new Promise<number | null>((resolveCode) => child.once("exit", resolveCode));
+    const stderr = child.stderr === null ? "" : await readStream(child.stderr);
+    const exitCode = await exit;
+
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain("-i requires an interactive terminal");
+    expect(stderr).toContain("unavailable in TUI and piped execution");
   });
 
   it("runs a TypeScript file directly and preserves its arguments and stdout", async () => {

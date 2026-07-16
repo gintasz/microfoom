@@ -334,6 +334,9 @@ $ unigent examples/pitch.ts --help
 Turn a product idea into a scored elevator pitch.
 
 Usage: pitch.ts "Product idea"
+
+Options:
+  -i  Prompt for missing required arguments.
 ```
 
 `args()` prints this standardized usage for `-h` or `--help`. Invalid input prints the schema's
@@ -346,7 +349,7 @@ negation:
 ```typescript
 const input = await args(
   z.object({
-    keyword: z.string(),
+    keyword: z.string().describe("The keyword to transform"),
     count: z.number().int().positive().default(1),
     cache: z.boolean().default(true),
   }),
@@ -359,6 +362,14 @@ unigent task.ts --keyword kebab --count 3 --no-cache
 
 `--no-cache` sets the `cache` field to `false`; `--cache` sets it to `true`. The `no-` prefix is a
 conventional CLI negation for boolean flags, not part of the schema field name.
+
+```console
+$ unigent task.ts --count 3 -i
+--keyword (The keyword to transform): kebab
+```
+
+`-i` prompts for missing required arguments; descriptions are optional. It requires a terminal and
+is unavailable in TUI or piped execution. Without `-i`, missing input fails immediately.
 
 ## Resume finished work with checkpoints
 

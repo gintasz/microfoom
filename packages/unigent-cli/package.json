@@ -1,6 +1,6 @@
 {
   "name": "unigent-cli",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "type": "module",
   "description": "Node.js script runner and Bun-powered live trace inspector for Unigent",
   "keywords": [
@@ -43,7 +43,7 @@
   "dependencies": {
     "@opentui/core": "0.4.2",
     "@opentui/react": "0.4.2",
-    "ajv": "8.17.1",
+    "ajv": "8.20.0",
     "react": "19.2.0"
   },
   "devDependencies": {

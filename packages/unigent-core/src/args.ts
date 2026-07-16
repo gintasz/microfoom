@@ -1,76 +1,26 @@
 import { basename } from "node:path";
 import process from "node:process";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
+import {
+  assembleArgumentPairs,
+  coerceScalar,
+  getArgumentPath,
+  type InputPair,
+  pairsFromArguments,
+  setArgumentPath,
+} from "./argument_object.js";
 import { AgentInputError } from "./errors.js";
+import { parseInteractiveArgs } from "./interactive_args.js";
+import { createTerminalPrompt, InteractiveInputCancelledError } from "./interactive_terminal.js";
 import { type OutputSchema, parseSchema } from "./schema.js";
 
-type InputPair = readonly [string, string | boolean];
 interface ArgsOptions {
   /** One-line explanation shown before usage. */
   readonly description?: string;
   /** Arguments appended to the detected script name in usage output. */
   readonly usage?: string;
 }
-const NEGATION_PREFIX = "no-";
-const UNSAFE_PATH_SEGMENTS: ReadonlySet<string> = new Set([
-  "__proto__",
-  "constructor",
-  "prototype",
-]);
-
-function flagPair(
-  name: string,
-  inline: string | undefined,
-  next: string | undefined,
-): { readonly pair: InputPair; readonly consumedNext: boolean } {
-  if (name.length === 0) {
-    throw new AgentInputError("argument names must not be empty");
-  }
-  if (name.startsWith(NEGATION_PREFIX) && inline === undefined) {
-    return { pair: [name.slice(NEGATION_PREFIX.length), false], consumedNext: false };
-  }
-  if (inline !== undefined) {
-    return { pair: [name, inline], consumedNext: false };
-  }
-  if (next === undefined || next.startsWith("--")) {
-    return { pair: [name, true], consumedNext: false };
-  }
-  return { pair: [name, next], consumedNext: true };
-}
-
-function pairsFromArguments(arguments_: readonly string[]): readonly InputPair[] {
-  const pairs: InputPair[] = [];
-  let index = 0;
-  while (index < arguments_.length) {
-    const token = arguments_[index] ?? "";
-    if (token === "--") {
-      index += 1;
-      continue;
-    }
-    if (!token.startsWith("--")) {
-      throw new AgentInputError(`unexpected positional argument: ${token}`);
-    }
-    const equals = token.indexOf("=");
-    const name = equals < 0 ? token.slice(2) : token.slice(2, equals);
-    const inline = equals < 0 ? undefined : token.slice(equals + 1);
-    const parsed = flagPair(name, inline, arguments_[index + 1]);
-    pairs.push(parsed.pair);
-    index += parsed.consumedNext ? 2 : 1;
-  }
-  return pairs;
-}
-
-function coerceScalar(raw: string): unknown {
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    if (parsed === null || typeof parsed === "number" || typeof parsed === "boolean") {
-      return parsed;
-    }
-  } catch {
-    // Non-JSON scalars remain strings.
-  }
-  return raw;
-}
+const INTERRUPTED_EXIT_CODE = 130;
 
 async function parsePositional<Output>(
   arguments_: readonly string[],
@@ -94,77 +44,6 @@ async function parsePositional<Output>(
   }
   const parsed = await parseSchema(schema, raw);
   throw new AgentInputError(parsed.error ?? "positional script input is invalid");
-}
-
-function pathSegments(path: string): readonly string[] {
-  const segments = path.split(".");
-  if (segments.some((segment) => segment.length === 0 || UNSAFE_PATH_SEGMENTS.has(segment))) {
-    throw new AgentInputError(`unsafe or empty argument path: ${path}`);
-  }
-  return segments;
-}
-
-type InputContainer = Record<string, unknown> | unknown[];
-
-function readContainer(container: InputContainer, key: string): unknown {
-  return Array.isArray(container) ? container[Number(key)] : container[key];
-}
-
-function writeContainer(container: InputContainer, key: string, value: unknown): void {
-  if (Array.isArray(container)) {
-    container[Number(key)] = value;
-  } else {
-    container[key] = value;
-  }
-}
-
-function isInputContainer(value: unknown): value is InputContainer {
-  return typeof value === "object" && value !== null;
-}
-
-function setPath(root: Record<string, unknown>, path: readonly string[], value: unknown): void {
-  let cursor: InputContainer = root;
-  for (const segment of path.slice(0, -1)) {
-    const existing = readContainer(cursor, segment);
-    if (existing !== undefined && !isInputContainer(existing)) {
-      throw new AgentInputError(`argument path conflicts at ${path.join(".")}`);
-    }
-    const next: InputContainer = existing ?? {};
-    writeContainer(cursor, segment, next);
-    cursor = next;
-  }
-  writeContainer(cursor, path.at(-1) ?? "", value);
-}
-
-function getPath(root: unknown, path: readonly string[]): unknown {
-  let cursor = root;
-  for (const segment of path) {
-    if (!isInputContainer(cursor)) {
-      return;
-    }
-    cursor = readContainer(cursor, segment);
-  }
-  return cursor;
-}
-
-function assemble(pairs: readonly InputPair[], coerce: boolean): Record<string, unknown> {
-  const grouped = new Map<string, Array<string | boolean>>();
-  for (const [name, value] of pairs) {
-    const values = grouped.get(name);
-    if (values === undefined) {
-      grouped.set(name, [value]);
-    } else {
-      values.push(value);
-    }
-  }
-  const root: Record<string, unknown> = {};
-  const convert = (value: string | boolean): unknown =>
-    coerce && typeof value === "string" ? coerceScalar(value) : value;
-  for (const [name, values] of grouped) {
-    const value = values.length === 1 ? convert(values[0] ?? "") : values.map(convert);
-    setPath(root, pathSegments(name), value);
-  }
-  return root;
 }
 
 function issuePath(path: StandardSchemaV1.Issue["path"]): readonly string[] {
@@ -195,10 +74,10 @@ async function uncoerceRejectedFields<Output>(
       if (path.length === 0) {
         continue;
       }
-      const current = getPath(candidate, path);
-      const original = getPath(raw, path);
+      const current = getArgumentPath(candidate, path);
+      const original = getArgumentPath(raw, path);
       if (typeof original === "string" && current !== original) {
-        setPath(candidate, path, original);
+        setArgumentPath(candidate, path, original);
         changed = true;
       }
     }
@@ -238,19 +117,27 @@ async function parseArgs<Output>(
     return await parsePositional(normalized, schema);
   }
   const pairs = pairsFromArguments(normalized);
-  const candidate = assemble(pairs, true);
+  const candidate = assembleArgumentPairs(pairs, true);
   if (schema === undefined) {
     return candidate;
   }
-  return await uncoerceRejectedFields(schema, candidate, assemble(pairs, false), pairs.length);
+  return await uncoerceRejectedFields(
+    schema,
+    candidate,
+    assembleArgumentPairs(pairs, false),
+    pairs.length,
+  );
 }
 
-function argsHelp(options: ArgsOptions): string {
+function argsHelp(options: ArgsOptions, interactive: boolean): string {
   const [, scriptPath] = process.argv;
   const scriptName = basename(scriptPath ?? "script");
   const usage = options.usage ?? "[arguments]";
   const description = options.description === undefined ? "" : `${options.description}\n\n`;
-  return `${description}Usage: ${scriptName} ${usage}\n`;
+  const interactiveHelp = interactive
+    ? "\nOptions:\n  -i  Prompt for missing required arguments.\n"
+    : "";
+  return `${description}Usage: ${scriptName} ${usage}\n${interactiveHelp}`;
 }
 
 function exitWithArgsMessage(message: string, code: number, stream: NodeJS.WriteStream): never {
@@ -264,6 +151,30 @@ function isOutputSchema<Output>(
   return value !== undefined && "~standard" in value;
 }
 
+async function parseRequestedArgs<Output>(
+  arguments_: readonly string[],
+  schema: OutputSchema<Output> | undefined,
+  interactive: boolean,
+): Promise<Output | Record<string, unknown>> {
+  if (!interactive) {
+    return schema === undefined ? await parseArgs(arguments_) : await parseArgs(arguments_, schema);
+  }
+  if (schema === undefined) {
+    throw new AgentInputError("-i requires an input schema");
+  }
+  const prompt = createTerminalPrompt();
+  try {
+    return await parseInteractiveArgs(
+      arguments_,
+      schema,
+      prompt,
+      async (): Promise<Output> => await parseArgs(arguments_, schema),
+    );
+  } finally {
+    prompt.close();
+  }
+}
+
 /** Parse `process.argv`, print standardized help/errors, and exit when no value can be returned. */
 async function args(options?: ArgsOptions): Promise<Record<string, unknown>>;
 async function args<Output>(schema: OutputSchema<Output>, options?: ArgsOptions): Promise<Output>;
@@ -275,14 +186,21 @@ async function args<Output>(
   const options = isOutputSchema(schemaOrOptions) ? suppliedOptions : (schemaOrOptions ?? {});
   const arguments_ = process.argv.slice(2);
   if (arguments_.includes("--help") || arguments_.includes("-h")) {
-    return exitWithArgsMessage(argsHelp(options), 0, process.stdout);
+    return exitWithArgsMessage(argsHelp(options, schema !== undefined), 0, process.stdout);
   }
+  const interactive = arguments_.includes("-i");
+  const inputArguments = interactive
+    ? arguments_.filter((argument) => argument !== "-i")
+    : arguments_;
   try {
-    return schema === undefined ? await parseArgs(arguments_) : await parseArgs(arguments_, schema);
+    return await parseRequestedArgs(inputArguments, schema, interactive);
   } catch (error) {
+    if (error instanceof InteractiveInputCancelledError) {
+      return process.exit(INTERRUPTED_EXIT_CODE);
+    }
     if (error instanceof AgentInputError) {
       return exitWithArgsMessage(
-        `unigent: ${error.message}\n\n${argsHelp(options)}`,
+        `unigent: ${error.message}\n\n${argsHelp(options, schema !== undefined)}`,
         1,
         process.stderr,
       );

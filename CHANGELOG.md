@@ -6,6 +6,13 @@ All notable changes to Unigent are recorded here. This project follows
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-07-16
+
+- Add explicit `-i` argument collection for direct terminal runs, with schema-driven prompts,
+  validation retries, complex-input JSON fallback, optional descriptions, and deterministic
+  non-interactive/TUI rejection.
+- Update Ajv to a release that fixes the `$data` regular-expression denial-of-service advisory.
+
 ## [0.1.4] - 2026-07-15
 
 - Replace the seven scoped public packages with two unscoped packages: `unigent-sdk` and
@@ -43,7 +50,8 @@ All notable changes to Unigent are recorded here. This project follows
 
 - Attempted initial release; withdrawn after the SDK package name was rejected.
 
-[Unreleased]: https://github.com/gintasz/unigent/compare/v0.1.4...HEAD
+[Unreleased]: https://github.com/gintasz/unigent/compare/v0.1.5...HEAD
+[0.1.5]: https://github.com/gintasz/unigent/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/gintasz/unigent/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/gintasz/unigent/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/gintasz/unigent/compare/v0.1.1...v0.1.2

@@ -30,4 +30,5 @@ function compileJsonSchemaValidator(schema: JsonSchema): JsonSchemaValidator {
   };
 }
 
+export type { JsonSchemaValidator };
 export { compileJsonSchemaValidator };
