@@ -13,7 +13,7 @@ const usage: AgentUsage = { inputTokens: 0, outputTokens: 0, totalTokens: 0, cal
 function node(
   spanId: string,
   name: string,
-  kind: "run" | "tool",
+  kind: "run" | "turn" | "tool",
   children: readonly TraceNode[] = [],
 ): TraceNode {
   return {
@@ -54,15 +54,29 @@ describe("trace tree presentation", () => {
     expect(rows[0]?.toolSummary).toBe("tools  rate ×2 · save");
   });
 
-  it("expands tools only for the selected run and keeps them non-selectable", () => {
-    const root = node("root", "parent", "run", [node("rate", "rate", "tool")]);
+  it("expands turn and tool details only for the selected run and keeps them non-selectable", () => {
+    const root = node("root", "parent", "run", [
+      node("turn", "turn", "turn", [node("rate", "rate", "tool")]),
+    ]);
     const tree: TraceTree = { roots: [root], usage, durationMs: 1 };
 
     const rows = flattenTraceTree(tree, new Set(["root"]));
 
-    expect(rows.map((row) => row.name)).toEqual(["parent", "rate"]);
+    expect(rows.map((row) => row.name)).toEqual(["parent", "turn", "rate"]);
     expect(rows[1]?.selectable).toBe(false);
-    expect(rows[0]?.toolsExpanded).toBe(true);
+    expect(rows[0]?.detailsExpanded).toBe(true);
+    expect(rows[0]?.hasDetails).toBe(true);
+    expect(rows[0]?.toolSummary).toBe("tools  rate");
+  });
+
+  it("allows a run with a provider turn but no tools to be expanded", () => {
+    const root = node("root", "parent", "run", [node("turn", "turn", "turn")]);
+    const tree: TraceTree = { roots: [root], usage, durationMs: 1 };
+
+    const rows = flattenTraceTree(tree);
+
+    expect(rows[0]?.hasDetails).toBe(true);
+    expect(rows[0]?.toolSummary).toBeUndefined();
   });
 
   it("projects scope paths into an aggregated workflow hierarchy", () => {

@@ -10,7 +10,7 @@ interface TraceNode {
   readonly spanId: string;
   readonly parentSpanId: string | undefined;
   readonly name: string;
-  readonly kind: "run" | "tool";
+  readonly kind: "run" | "turn" | "tool";
   readonly backend: string | undefined;
   readonly model: string | undefined;
   readonly agent: string | undefined;
@@ -73,7 +73,7 @@ interface MutableTraceNode {
   spanId: string;
   parentSpanId: string | undefined;
   name: string;
-  kind: "run" | "tool";
+  kind: "run" | "turn" | "tool";
   backend: string | undefined;
   model: string | undefined;
   agent: string | undefined;

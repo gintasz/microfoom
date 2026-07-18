@@ -171,13 +171,16 @@ describe("Unigent core integration", () => {
     expect(result.usage.totalTokens).toBe(4);
     expect(scope.usage.totalTokens).toBe(4);
     expect(scope.traces).toHaveLength(1);
-    expect(result.trace.events.filter((event) => event.type === "span_start")).toHaveLength(3);
+    expect(
+      result.trace.events.filter((event) => event.type === "span_start" && event.kind !== "turn"),
+    ).toHaveLength(3);
   });
 
   it("repairs a missing structured return on the same backend session", async () => {
     let turns = 0;
     const backend = fakeBackend(async (request) => {
       turns += 1;
+      request.onEvent({ type: "text", text: turns === 1 ? "draft" : "fixed" });
       if (turns === 2) {
         const returnTool = request.tools.find((candidate) => candidate.name === "unigent_return");
         await returnTool?.execute({ value: "fixed" });
@@ -190,6 +193,104 @@ describe("Unigent core integration", () => {
 
     expect(result.output).toBe("fixed");
     expect(turns).toBe(2);
+    expect(buildTranscript(result.trace.events).filter((entry) => entry.kind !== "system")).toEqual(
+      [
+        expect.objectContaining({ kind: "user", text: "return text" }),
+        expect.objectContaining({ kind: "assistant", text: "draft" }),
+        expect.objectContaining({
+          kind: "user",
+          text: "You did not call unigent_return. Call it now with the required result.",
+        }),
+        expect.objectContaining({ kind: "assistant", text: "fixed" }),
+      ],
+    );
+    expect(
+      result.trace.events.filter((event) => event.type === "span_start").map((event) => event.kind),
+    ).toEqual(["run", "turn", "turn"]);
+  });
+
+  it("retries a transient repair failure from the pre-repair session", async () => {
+    let turns = 0;
+    const prompts: string[] = [];
+    const backend = fakeBackend(async (request) => {
+      turns += 1;
+      prompts.push(request.prompt);
+      if (turns === 1) {
+        request.onEvent({ type: "text", text: "unstructured" });
+        return backendResult("unstructured");
+      }
+      if (turns === 2) {
+        throw new AgentBackendUnavailableError("temporary repair stream failure");
+      }
+      const returnTool = request.tools.find((candidate) => candidate.name === "unigent_return");
+      await returnTool?.execute({ value: "recovered" });
+      return backendResult("");
+    });
+    const assistant = agent({
+      name: "repair-retry",
+      backend,
+      model: "fake",
+      retries: 1,
+      repairAttempts: 1,
+    });
+
+    const result = await assistant.run("return text", z.string());
+
+    const repairPrompt = "You did not call unigent_return. Call it now with the required result.";
+    expect(result.output).toBe("recovered");
+    expect(prompts).toEqual(["return text", repairPrompt, repairPrompt]);
+    expect(buildTranscript(result.trace.events).filter((entry) => entry.kind === "user")).toEqual([
+      expect.objectContaining({ text: "return text" }),
+      expect.objectContaining({ text: repairPrompt }),
+    ]);
+    expect(
+      result.trace.events.filter(
+        (event) =>
+          event.type === "span_end" &&
+          event.error === "temporary repair stream failure" &&
+          event.outcome === "failed",
+      ),
+    ).toHaveLength(1);
+    expect(result.usage).toMatchObject({ calls: 2, totalTokens: 4 });
+  });
+
+  it("adopts the successful repair fork for the next stateful session turn", async () => {
+    const sessionTurnIndices: number[] = [];
+    let repairCalls = 0;
+    const makeSession = (seed = 0): BackendSession => {
+      let nextTurnIndex = seed;
+      return {
+        runTurn: async (request): Promise<BackendTurnResult> => {
+          sessionTurnIndices.push(nextTurnIndex);
+          nextTurnIndex += 1;
+          if (request.prompt.startsWith("You did not call")) {
+            repairCalls += 1;
+            if (repairCalls === 1) {
+              throw new AgentBackendUnavailableError("temporary repair stream failure");
+            }
+            const returnTool = request.tools.find(
+              (candidate) => candidate.name === "unigent_return",
+            );
+            await returnTool?.execute({ value: "recovered" });
+          }
+          return backendResult(request.prompt === "after" ? "continued" : "unstructured");
+        },
+        fork: (): BackendSession => makeSession(nextTurnIndex),
+      };
+    };
+    const backend: Backend = {
+      name: "stateful-repair",
+      capabilities: { reportsCost: true, supportsSessionFork: true },
+      openSession: () => makeSession(),
+    };
+    const session = agent({ name: "repair", backend, model: "fake", retries: 1 }).session();
+
+    await expect(session.run("structured", z.string())).resolves.toMatchObject({
+      output: "recovered",
+    });
+    await expect(session.run("after")).resolves.toMatchObject({ output: "continued" });
+
+    expect(sessionTurnIndices).toEqual([0, 1, 1, 2]);
   });
 
   it("keeps one protocol prompt while structured output toggles between session turns", async () => {

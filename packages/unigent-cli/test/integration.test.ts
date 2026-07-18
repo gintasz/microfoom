@@ -55,7 +55,7 @@ describe("Unigent CLI process integration", () => {
     const exitCode = await exit;
 
     expect(exitCode).toBe(0);
-    expect(stdout).toBe("0.1.6\n");
+    expect(stdout).toBe("0.1.7\n");
   });
 
   it("reports a missing script without a raw ENOENT", async () => {
@@ -237,10 +237,15 @@ describe("Unigent CLI process integration", () => {
       "span_start",
       "system_prompt",
       "user_prompt",
+      "span_start",
       "reasoning",
       "text",
       "span_end",
+      "span_end",
     ]);
+    expect(
+      events.filter((event) => event.type === "span_start").map((event) => event.kind),
+    ).toEqual(["run", "turn"]);
     expect(events.at(-1)).toMatchObject({ outcome: "succeeded", usage: { totalTokens: 18 } });
   });
 

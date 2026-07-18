@@ -302,7 +302,7 @@ function TraceRow(props: {
         <text fg={palette.muted}>{row.metrics.length > 0 ? `${row.metrics}  ` : ""}</text>
         <text fg={outcomeColor}>{outcomeGlyph}</text>
       </box>
-      {row.toolSummary === undefined || row.toolsExpanded ? null : (
+      {row.toolSummary === undefined || row.detailsExpanded ? null : (
         <text fg={palette.muted}>{`  ${nestedSummaryPrefix(row.prefix)}${row.toolSummary}`}</text>
       )}
     </box>
@@ -683,9 +683,11 @@ function Footer(props: {
         )}
         {"  ·  ↑↓ trace"}
         {props.selectedRow === undefined ? null : "  ·  esc show all"}
-        {props.selectedRow?.hasTools === true ? (
+        {props.selectedRow?.hasDetails === true ? (
           <span fg={props.palette.accent}>
-            {props.selectedRow.toolsExpanded ? "  ·  enter hide tools" : "  ·  enter show tools"}
+            {props.selectedRow.detailsExpanded
+              ? "  ·  enter hide details"
+              : "  ·  enter show details"}
           </span>
         ) : null}
         {props.hasTraceHistory ? "  ·  [ ] history" : null}
@@ -836,7 +838,7 @@ function toggleExpandedRun(
   selectedRow: TreeRow | undefined,
   setExpandedRunSpanIds: React.Dispatch<React.SetStateAction<ReadonlySet<string>>>,
 ): void {
-  if (selectedRow?.hasTools !== true) {
+  if (selectedRow?.hasDetails !== true) {
     return;
   }
   setExpandedRunSpanIds((expanded) => {

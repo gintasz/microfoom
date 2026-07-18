@@ -12,8 +12,8 @@ interface TreeRow {
   readonly metrics: string;
   readonly outcome: TraceNode["outcome"];
   readonly toolSummary: string | undefined;
-  readonly hasTools: boolean;
-  readonly toolsExpanded: boolean;
+  readonly hasDetails: boolean;
+  readonly detailsExpanded: boolean;
   readonly selectable: boolean;
   readonly scopePath: readonly string[];
   readonly runCount: number;
@@ -99,7 +99,7 @@ function aggregateOutcome(nodes: readonly TraceNode[]): TraceNode["outcome"] {
 
 function summarizeTools(node: TraceNode): string | undefined {
   const counts = new Map<string, number>();
-  for (const child of node.children) {
+  for (const child of nestedNodes(node.children)) {
     if (child.kind === "tool") {
       counts.set(child.name, (counts.get(child.name) ?? 0) + 1);
     }
@@ -121,7 +121,7 @@ function visibleChildren(
   node: TraceNode,
   expandedRunSpanIds: ReadonlySet<string>,
 ): readonly TraceNode[] {
-  if (node.kind === "tool") {
+  if (node.kind === "tool" || node.kind === "turn") {
     return node.children;
   }
   return node.children.flatMap((child) => {
@@ -176,8 +176,8 @@ function scopeRow(group: MutableScopeGroup, prefix: string): TreeRow {
     metrics: scopeMetrics(nodes),
     outcome: aggregateOutcome(nodes),
     toolSummary: undefined,
-    hasTools: false,
-    toolsExpanded: false,
+    hasDetails: false,
+    detailsExpanded: false,
     selectable: true,
     scopePath: group.path,
     runCount: nodes.length,
@@ -206,8 +206,10 @@ function nodeRow(
     metrics: nodeMetrics(node),
     outcome: node.outcome,
     toolSummary: node.kind === "run" ? summarizeTools(node) : undefined,
-    hasTools: node.kind === "run" && node.children.some((child) => child.kind === "tool"),
-    toolsExpanded: node.kind === "run" && expandedRunSpanIds.has(node.spanId),
+    hasDetails:
+      node.kind === "run" &&
+      nestedNodes(node.children).some((child) => child.kind === "turn" || child.kind === "tool"),
+    detailsExpanded: node.kind === "run" && expandedRunSpanIds.has(node.spanId),
     selectable: node.kind === "run",
     scopePath: node.scopePath,
     runCount: node.kind === "run" ? 1 : 0,

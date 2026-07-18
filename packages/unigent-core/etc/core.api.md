@@ -102,7 +102,7 @@ export class AgentError extends Error {
 export type AgentEvent = EventEnvelope & ({
     readonly type: "span_start";
     readonly name: string;
-    readonly kind: "run" | "tool";
+    readonly kind: "run" | "turn" | "tool";
     readonly backend?: string;
     readonly model?: string;
     readonly agent?: string;

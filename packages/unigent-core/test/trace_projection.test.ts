@@ -88,6 +88,66 @@ describe("incremental trace projection", () => {
     ]);
   });
 
+  it("keeps assistant output from separate backend turns distinct", () => {
+    const projection = new TraceProjection();
+    const envelope = { traceId: "trace", timestamp: TIMESTAMP };
+    projection.append({
+      ...envelope,
+      spanId: "run",
+      sequence: 0,
+      type: "span_start",
+      name: "worker",
+      kind: "run",
+    });
+    projection.append({
+      ...envelope,
+      spanId: "turn-1",
+      parentSpanId: "run",
+      sequence: 1,
+      type: "span_start",
+      name: "turn",
+      kind: "turn",
+    });
+    projection.append({
+      ...envelope,
+      spanId: "turn-1",
+      parentSpanId: "run",
+      sequence: 2,
+      type: "text",
+      text: "draft",
+    });
+    projection.append({
+      ...envelope,
+      spanId: "run",
+      sequence: 3,
+      type: "user_prompt",
+      text: "repair",
+    });
+    projection.append({
+      ...envelope,
+      spanId: "turn-2",
+      parentSpanId: "run",
+      sequence: 4,
+      type: "span_start",
+      name: "turn",
+      kind: "turn",
+    });
+    projection.append({
+      ...envelope,
+      spanId: "turn-2",
+      parentSpanId: "run",
+      sequence: 5,
+      type: "text",
+      text: "fixed",
+    });
+
+    expect(projection.snapshot().transcript).toEqual([
+      { kind: "assistant", spanId: "turn-1", text: "draft" },
+      { kind: "user", spanId: "run", text: "repair" },
+      { kind: "assistant", spanId: "turn-2", text: "fixed" },
+    ]);
+  });
+
   it("does not mutate an earlier snapshot when later events append", () => {
     const projection = new TraceProjection();
     const events = eventsForRun(1);

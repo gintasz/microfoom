@@ -226,6 +226,7 @@ interface SettleRunRequest<Output> {
   readonly context: ExecutionContext;
   readonly lifecycle: RunLifecycle;
   readonly checkpointEnabled: boolean;
+  readonly onSession?: (session: BackendSession) => void;
 }
 
 interface CreateRunRequest<Output> {
@@ -237,9 +238,11 @@ interface CreateRunRequest<Output> {
   readonly canRetrySession: boolean;
   readonly checkpointEnabled: boolean;
   readonly onFinalize?: (usage: AgentUsage) => void;
+  readonly onSession?: (session: BackendSession) => void;
 }
 
 type SessionFactory = () => BackendSession | Promise<BackendSession>;
+type BackendTurnRequestFactory = (prompt: string, spanId: string) => BackendTurnRequest;
 
 const executionContext = new AsyncLocalStorage<ExecutionContext>();
 const DURATION_PATTERN = /^(\d+(?:\.\d+)?)(s|m|h)$/;
@@ -567,13 +570,24 @@ function validateCapabilities(config: ResolvedConfig): void {
 
 async function oneBackendTurn(
   session: BackendSession,
-  request: BackendTurnRequest,
+  prompt: string,
+  requestFactory: BackendTurnRequestFactory,
   context: ExecutionContext,
   turnDuration: Duration | undefined,
 ): Promise<BackendTurnResult> {
-  if (request.signal.aborted) {
+  if (context.signal.aborted) {
     throw new AgentCancelledError("run was cancelled");
   }
+  const spanId = randomUUID();
+  const started = performance.now();
+  const request = requestFactory(prompt, spanId);
+  context.eventLog.emit({
+    type: "span_start",
+    spanId,
+    parentSpanId: context.spanId,
+    name: "turn",
+    kind: "turn",
+  });
   const timeout =
     turnDuration === undefined
       ? undefined
@@ -592,16 +606,34 @@ async function oneBackendTurn(
     rejectAbort?.(error);
   };
   turnSignal.addEventListener("abort", onAbort, { once: true });
+  let usage = emptyUsage();
+  let outcome: "succeeded" | "failed" | "cancelled" = "succeeded";
+  let errorMessage: string | undefined;
   try {
-    return await Promise.race([
+    const result = await Promise.race([
       executionContext.run(
-        context,
+        { ...context, spanId },
         async (): Promise<BackendTurnResult> => session.runTurn({ ...request, signal: turnSignal }),
       ),
       aborted,
     ]);
+    usage = usageFromBackend(result.usage);
+    return result;
+  } catch (error) {
+    outcome = error instanceof AgentCancelledError ? "cancelled" : "failed";
+    errorMessage = error instanceof Error ? error.message : String(error);
+    throw error;
   } finally {
     turnSignal.removeEventListener("abort", onAbort);
+    context.eventLog.emit({
+      type: "span_end",
+      spanId,
+      parentSpanId: context.spanId,
+      durationMs: performance.now() - started,
+      usage,
+      outcome,
+      ...(errorMessage === undefined ? {} : { error: errorMessage }),
+    });
   }
 }
 
@@ -612,6 +644,7 @@ async function driveRun<Output>(
   sessionFactory: SessionFactory,
   canRetrySession: boolean,
   context: ExecutionContext,
+  onSession: ((session: BackendSession) => void) | undefined,
 ): Promise<Output | string> {
   validateCapabilities(config);
   const currentCost =
@@ -632,7 +665,7 @@ async function driveRun<Output>(
   };
   const tools = buildTools(config, completion, state);
   const systemPrompt = unigentSystemPrompt(config);
-  const request = (turnPrompt: string): BackendTurnRequest => ({
+  const request = (turnPrompt: string, spanId: string): BackendTurnRequest => ({
     systemPrompt,
     systemPromptMode:
       config.systemPrompt !== undefined && "replace" in config.systemPrompt ? "replace" : "append",
@@ -640,8 +673,7 @@ async function driveRun<Output>(
     tools,
     ...(config.thinking === undefined ? {} : { thinking: config.thinking }),
     signal: context.signal,
-    onEvent: (event: BackendEvent): void =>
-      emitBackendEvent(context.eventLog, context.spanId, event),
+    onEvent: (event: BackendEvent): void => emitBackendEvent(context.eventLog, spanId, event),
   });
   const initial = await runWithRetries(
     config,
@@ -652,20 +684,27 @@ async function driveRun<Output>(
     state,
     request,
   );
-  const { result, session } = initial;
+  let { result, session } = initial;
+  onSession?.(session);
   context.usage.add(usageFromBackend(result.usage));
   throwFatalError(state);
   if (completion.kind === "prose") {
     return result.text;
   }
   for (let repair = 0; !state.hasOutput && repair < config.repairAttempts; repair += 1) {
-    const repaired = await oneBackendTurn(
+    const repairPrompt = `You did not call ${RETURN_TOOL_NAME}. Call it now with the required result.`;
+    context.eventLog.emit({ type: "user_prompt", spanId: context.spanId, text: repairPrompt });
+    const repaired = await runRepairWithRetries(
+      config,
       session,
-      request(`You did not call ${RETURN_TOOL_NAME}. Call it now with the required result.`),
+      repairPrompt,
       context,
-      config.limits.turnDuration,
+      state,
+      request,
     );
-    context.usage.add(usageFromBackend(repaired.usage));
+    ({ result, session } = repaired);
+    onSession?.(session);
+    context.usage.add(usageFromBackend(result.usage));
     throwFatalError(state);
   }
   if (!state.hasOutput) {
@@ -767,17 +806,29 @@ function flightsFor(store: CheckpointStore): Map<string, Promise<CheckpointRecor
 }
 
 async function runCheckpointed<Output>(
-  config: ResolvedConfig,
-  prompt: string,
-  completion: Completion<Output>,
-  sessionFactory: SessionFactory,
-  canRetrySession: boolean,
-  context: ExecutionContext,
-  enabled: boolean,
+  request: SettleRunRequest<Output>,
 ): Promise<Output | string> {
-  const checkpoint = checkpointContext(config, prompt, completion, enabled);
+  const {
+    config,
+    prompt,
+    completion,
+    sessionFactory,
+    canRetrySession,
+    context,
+    checkpointEnabled,
+    onSession,
+  } = request;
+  const checkpoint = checkpointContext(config, prompt, completion, checkpointEnabled);
   if (checkpoint === undefined) {
-    return await driveRun(config, prompt, completion, sessionFactory, canRetrySession, context);
+    return await driveRun(
+      config,
+      prompt,
+      completion,
+      sessionFactory,
+      canRetrySession,
+      context,
+      onSession,
+    );
   }
   let hit: CheckpointRecord | undefined;
   try {
@@ -807,6 +858,7 @@ async function runCheckpointed<Output>(
       sessionFactory,
       canRetrySession,
       context,
+      onSession,
     );
     const record: CheckpointRecord = {
       version: 1,
@@ -838,14 +890,15 @@ async function runWithRetries(
   canRetrySession: boolean,
   context: ExecutionContext,
   state: ToolExecutionState,
-  request: (prompt: string) => BackendTurnRequest,
+  request: BackendTurnRequestFactory,
 ): Promise<{ readonly result: BackendTurnResult; readonly session: BackendSession }> {
   let session = await sessionFactory();
   for (let attempt = 0; attempt <= config.retries; attempt += 1) {
     try {
       const result = await oneBackendTurn(
         session,
-        request(prompt),
+        prompt,
+        request,
         context,
         config.limits.turnDuration,
       );
@@ -863,6 +916,32 @@ async function runWithRetries(
     }
   }
   throw new AgentBackendUnavailableError("backend produced no result");
+}
+
+async function runRepairWithRetries(
+  config: ResolvedConfig,
+  session: BackendSession,
+  prompt: string,
+  context: ExecutionContext,
+  state: ToolExecutionState,
+  request: BackendTurnRequestFactory,
+): Promise<{ readonly result: BackendTurnResult; readonly session: BackendSession }> {
+  const { fork } = session;
+  if (fork === undefined) {
+    return {
+      result: await oneBackendTurn(session, prompt, request, context, config.limits.turnDuration),
+      session,
+    };
+  }
+  return await runWithRetries(
+    config,
+    prompt,
+    (): BackendSession => fork(),
+    true,
+    context,
+    state,
+    request,
+  );
 }
 
 function combineSignals(signals: readonly AbortSignal[]): AbortSignal {
@@ -1082,15 +1161,7 @@ async function settleRun<Output>(
     | { readonly ok: true; readonly output: Output }
     | { readonly ok: false; readonly error: unknown };
   try {
-    const output = await runCheckpointed(
-      config,
-      request.prompt,
-      request.completion,
-      request.sessionFactory,
-      request.canRetrySession,
-      context,
-      request.checkpointEnabled,
-    );
+    const output = await runCheckpointed(request);
     const snapshot = lifecycle.usage.snapshot();
     const projectedCost =
       config.limits.budgetUsd === undefined
@@ -1232,6 +1303,7 @@ function createRun<Output>(request: CreateRunRequest<Output>): AgentRun<Output> 
     context,
     lifecycle,
     checkpointEnabled: request.checkpointEnabled,
+    ...(request.onSession === undefined ? {} : { onSession: request.onSession }),
   });
   return attachRun(promise, controller, log.iterable(spanId), usage, log);
 }
@@ -1294,13 +1366,16 @@ function makeSession(
     busy = true;
     try {
       return createRun({
-        config: { ...config, retries: 0 },
+        config,
         scope,
         prompt,
         completion,
         sessionFactory: async () => await openedSession(config, state),
         canRetrySession: false,
         checkpointEnabled: false,
+        onSession: (session: BackendSession): void => {
+          state.opened = session;
+        },
         onFinalize: (runUsage: AgentUsage): void => {
           usage.add(runUsage);
           busy = false;

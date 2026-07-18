@@ -115,7 +115,7 @@ test("summarizes tool calls and expands them only for the selected agent", async
     expect(toolTerminal.screen.getText()).not.toContain("◆ run · scorer");
     toolTerminal.press("Enter");
     await toolTerminal.waitFor("◇ rate", 5000);
-    expect(toolTerminal.screen.getText()).toContain("enter hide tools");
+    expect(toolTerminal.screen.getText()).toContain("enter hide details");
   } finally {
     await toolTerminal.close();
   }

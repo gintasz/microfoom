@@ -6,6 +6,13 @@ All notable changes to Unigent are recorded here. This project follows
 
 ## [Unreleased]
 
+## [0.1.7] - 2026-07-18
+
+- Expose each backend invocation as a separate trace turn, including automatic repair prompts and
+  failed retry attempts, so the TUI no longer merges or hides repair activity.
+- Retry transient repair failures from isolated pre-repair session forks when no user tool has
+  completed, retaining only the successful session.
+
 ## [0.1.6] - 2026-07-18
 
 - Display complete TUI activity, diagnostic, and output blocks instead of hiding content beyond
@@ -55,7 +62,8 @@ All notable changes to Unigent are recorded here. This project follows
 
 - Attempted initial release; withdrawn after the SDK package name was rejected.
 
-[Unreleased]: https://github.com/gintasz/unigent/compare/v0.1.6...HEAD
+[Unreleased]: https://github.com/gintasz/unigent/compare/v0.1.7...HEAD
+[0.1.7]: https://github.com/gintasz/unigent/compare/v0.1.6...v0.1.7
 [0.1.6]: https://github.com/gintasz/unigent/compare/v0.1.5...v0.1.6
 [0.1.5]: https://github.com/gintasz/unigent/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/gintasz/unigent/compare/v0.1.3...v0.1.4
